@@ -1,0 +1,17 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+
+# environment — real values never committed (SEC-10); .env.example is the inventory
+.env
+.env.*
+!.env.example
+
+# test artifacts
+coverage/
+
+# editor / OS noise
+.DS_Store
+*.local
