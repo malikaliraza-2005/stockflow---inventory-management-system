@@ -56,6 +56,31 @@ export class NotFoundError extends AppError {
   }
 }
 
+/**
+ * The generic 401 (F1). Login/reset failures MUST stay generic (AAD §2 —
+ * never "wrong password" vs "no such user"); also the auth middleware's
+ * missing/invalid-token response.
+ */
+export class UnauthorizedError extends AppError {
+  constructor(message = 'Invalid credentials.') {
+    super('UNAUTHORIZED', message);
+  }
+}
+
+/** BR-33: 5 consecutive failures → 15-min lock → 423 (F1). */
+export class AccountLockedError extends AppError {
+  constructor(message = 'Account temporarily locked. Try again later.') {
+    super('ACCOUNT_LOCKED', message);
+  }
+}
+
+/** FR-USER-04 / EC-17: deactivation takes effect within one request (F1). */
+export class AccountDeactivatedError extends AppError {
+  constructor(message = 'This account has been deactivated.') {
+    super('ACCOUNT_DEACTIVATED', message);
+  }
+}
+
 /** DB down / booting / draining — carries Retry-After (NFR-20, DEP §5). */
 export class ServiceUnavailableError extends AppError {
   readonly retryAfterSeconds: number;
