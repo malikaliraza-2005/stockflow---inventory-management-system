@@ -17,6 +17,7 @@ import mongoose from 'mongoose';
 import { createApp } from './app.js';
 import { loadEnv } from './config/env.js';
 import { createLogger } from './lib/logger.js';
+import { IntegrityError, verifyBootIntegrity } from './seeds/integrity.js';
 
 const CONNECT_RETRY_BASE_MS = 1_000;
 const CONNECT_RETRY_MAX_MS = 30_000;
@@ -24,15 +25,6 @@ const SHUTDOWN_GRACE_MS = 30_000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * Boot integrity check seam (BEA §8: settings singleton present + ≥ 1 active
- * Admin — BR-41/BR-30). The real check ships with the seed module (task 0.7,
- * DBD §8); until then a connected database is the readiness bar.
- */
-async function verifyBootIntegrity(): Promise<void> {
-  // TODO(task 0.7): settings singleton + active-Admin existence checks.
 }
 
 export async function start(): Promise<void> {
@@ -69,7 +61,17 @@ export async function start(): Promise<void> {
     }
   }
 
-  await verifyBootIntegrity();
+  // Integrity failure ≠ crash (DBD §8): the process stays up with /ready false
+  // and logs the remediation — the seed release phase (DEP §11) is the fix.
+  try {
+    await verifyBootIntegrity();
+  } catch (error) {
+    if (error instanceof IntegrityError) {
+      logger.error({ err: error.message }, 'integrity check failed — staying NOT ready');
+      return; // listener stays up; /ready reports 503 until seeded + restarted
+    }
+    throw error;
+  }
   ready = true;
   logger.info('boot complete — /ready true');
 
