@@ -1,26 +1,54 @@
 /**
  * Express app factory — the BEA §3 normative pipeline ("deviations are
- * defects"). Phase-0 slice: positions #0 (health), #1 (requestId), the
- * completion logger, the unknown-route 404, and the terminal errorHandler.
- * Positions #3–#8 (helmet, cors, compression, limiters, json+cookies,
- * mongoSanitize) and #9–#11 (authenticate, authorize, validate) arrive with
- * their consumers (0.12 header verification / Phase-1 auth) — slots reserved.
+ * defects"), completed to position #11 with F1:
  *
- * Dependency-injected (logger, readiness) so integration tests run the real
- * app with no environment or database.
+ *   #0 health · #1 requestId (+completion log) · #2 trust proxy ·
+ *   #3 helmet · #4 cors (credentials only on /auth) · #5 compression ·
+ *   #6 rate limiters (global /api/v1; strict on login+reset inside the auth
+ *   router) · #7 json(1 MB)+cookies · #8 mongoSanitize ·
+ *   #9 authenticate / #10 authorize / #11 validate (per-route) ·
+ *   ∞ errorHandler
+ *
+ * Dependency-injected (logger, readiness, env subset) so integration tests
+ * run the REAL pipeline against ephemeral Mongo with test configuration.
  */
+import compression from 'compression';
+import cookieParser from 'cookie-parser';
+import cors from 'cors';
 import express, { type Express } from 'express';
+import mongoSanitize from 'express-mongo-sanitize';
+import helmet from 'helmet';
 
+import { createAuthController } from './controllers/authController.js';
 import { NotFoundError, ServiceUnavailableError } from './errors/AppError.js';
 import type { Logger } from './lib/logger.js';
+import { authenticate } from './middleware/authenticate.js';
 import { createErrorHandler } from './middleware/errorHandler.js';
 import { httpLogger } from './middleware/httpLogger.js';
+import { createGlobalLimiter, createStrictLimiter } from './middleware/rateLimiters.js';
 import { requestId } from './middleware/requestId.js';
+import { createAuthRouter } from './routes/auth.js';
+import { AuditService } from './services/AuditService.js';
+import { AuthService } from './services/AuthService.js';
+
+/** The env slice the pipeline consumes — server.ts passes the validated Env. */
+export interface AppEnv {
+  NODE_ENV: 'development' | 'test' | 'staging' | 'production';
+  JWT_ACCESS_SECRET: string;
+  ACCESS_TOKEN_TTL: string;
+  REFRESH_TOKEN_TTL: string;
+  CORS_ORIGIN: string;
+  RATE_LIMIT_GLOBAL_MAX: number;
+  RATE_LIMIT_GLOBAL_WINDOW_MS: number;
+  RATE_LIMIT_STRICT_MAX: number;
+  RATE_LIMIT_STRICT_WINDOW_MS: number;
+}
 
 export interface AppDeps {
   logger: Logger;
   /** Readiness provider — server.ts owns the state (DB connected + integrity). */
   isReady: () => boolean;
+  env: AppEnv;
   /** ARB-01: exact platform hop count (env TRUST_PROXY_HOPS); echo-verified in 0.12 (R-4). */
   trustProxyHops?: number;
   /** Seconds advertised in Retry-After while not ready (NFR-20). */
@@ -28,15 +56,14 @@ export interface AppDeps {
 }
 
 export function createApp(deps: AppDeps): Express {
-  const { logger, isReady, trustProxyHops = 0, readyRetryAfterSeconds = 30 } = deps;
+  const { logger, isReady, env, trustProxyHops = 0, readyRetryAfterSeconds = 30 } = deps;
 
   const app = express();
   app.disable('x-powered-by');
-  app.set('trust proxy', trustProxyHops);
+  app.set('trust proxy', trustProxyHops); // #2 (ARB-01)
 
   // #0 — health endpoints mounted BEFORE everything: no auth, no limiters,
   // no correlation (ARB-04; ERR §4 — monitoring bodies, not the app).
-  // Shapes are contract-locked to server/openapi.yaml (task 0.5).
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok' });
   });
@@ -45,14 +72,84 @@ export function createApp(deps: AppDeps): Express {
       res.json({ status: 'ready' });
       return;
     }
-    // 503 envelope via the terminal handler; correlationId is 'unknown' here
-    // by design — health mounts ahead of the requestId middleware.
     next(new ServiceUnavailableError(readyRetryAfterSeconds, 'Service not ready.'));
   });
 
   // #1 — correlation ID · completion logging
   app.use(requestId(logger));
   app.use(httpLogger());
+
+  // #3 — helmet: CSP (self + Cloudinary image origin), HSTS, frame-deny,
+  // referrer policy (SEC-05)
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: { 'img-src': ["'self'", 'https://res.cloudinary.com'] },
+      },
+    }),
+  );
+
+  // #4 — cors: exact frontend origin; credentials ONLY on /auth routes
+  // (BEA §3 — the refresh cookie is the sole credentialed exchange)
+  app.use(
+    cors((req, callback) => {
+      callback(null, {
+        origin: env.CORS_ORIGIN,
+        credentials: req.path.startsWith('/api/v1/auth'),
+      });
+    }),
+  );
+
+  // #5 — compression (NFR-07)
+  app.use(compression());
+
+  // #6 — global limiter on the API surface (SEC-04); strict limiter is wired
+  // inside the auth router on login + reset-password only
+  app.use(
+    '/api/v1',
+    createGlobalLimiter({
+      windowMs: env.RATE_LIMIT_GLOBAL_WINDOW_MS,
+      max: env.RATE_LIMIT_GLOBAL_MAX,
+    }),
+  );
+
+  // #7 — body parsing (1 MB cap, SEC-06) + refresh cookie
+  app.use(express.json({ limit: '1mb' }));
+  app.use(cookieParser());
+
+  // #8 — strip $-prefixed keys/operators (SEC-06)
+  app.use(mongoSanitize());
+
+  // ── services + per-route chain builders (#9/#10/#11 live on routes) ────
+  const audit = new AuditService(logger);
+  const authService = new AuthService({
+    audit,
+    logger,
+    config: {
+      accessSecret: env.JWT_ACCESS_SECRET,
+      accessTtl: env.ACCESS_TOKEN_TTL,
+      refreshTtl: env.REFRESH_TOKEN_TTL,
+    },
+  });
+  const authenticateMw = authenticate(env.JWT_ACCESS_SECRET);
+  // authorize(...) ships this PR (middleware/authorize.ts, unit-tested) but
+  // is WIRED with its first consumer — F2's /users router (first-consumer law:
+  // every /auth row is Public or Any).
+
+  app.use(
+    '/api/v1/auth',
+    createAuthRouter({
+      controller: createAuthController({
+        authService,
+        secureCookies: env.NODE_ENV === 'production' || env.NODE_ENV === 'staging',
+      }),
+      authenticate: authenticateMw,
+      strictLimiter: createStrictLimiter({
+        windowMs: env.RATE_LIMIT_STRICT_WINDOW_MS,
+        max: env.RATE_LIMIT_STRICT_MAX,
+      }),
+    }),
+  );
 
   // Unknown route → 404 envelope (ERR §11)
   app.use((_req, _res, next) => {

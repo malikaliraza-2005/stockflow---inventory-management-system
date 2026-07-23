@@ -195,7 +195,7 @@
 | `actorId` | ObjectId → users | ✔ | server-derived |
 | `entityType` | String | ✔ | enum `PRODUCT` \| `CATEGORY` \| `USER` \| `SETTINGS` \| `SECURITY` |
 | `entityId` | ObjectId | cond. | absent for some security events |
-| `action` | String | ✔ | **closed enum (PDV-01):** `CREATE, UPDATE, ARCHIVE, RESTORE, DELETE, LOGIN_SUCCESS, LOGIN_FAILED, LOCKOUT, PASSWORD_RESET_ISSUED, PASSWORD_RESET_COMPLETED, PASSWORD_CHANGED, ROLE_CHANGE, DEACTIVATE, REACTIVATE, TOKEN_REUSE_DETECTED` |
+| `action` | String | ✔ | **closed enum (PDV-01):** `CREATE, UPDATE, ARCHIVE, RESTORE, DELETE, LOGIN_SUCCESS, LOGIN_FAILED, LOCKOUT, PASSWORD_RESET_ISSUED, PASSWORD_RESET_COMPLETED, PASSWORD_CHANGED, ROLE_CHANGE, DEACTIVATE, REACTIVATE, TOKEN_REUSE_DETECTED` + `REPEATED_FORBIDDEN` *(documented extension, F1 T-d: AAD §7 mandates the BEV-03 repeated-403 pattern event; added by the same instrument as the APR-01 code extensions — this enum had omitted it)* |
 | `entityLabel` | String | ✔ | **DN-4 (ERB-01)** — display identity captured at write time (product name + SKU / category name / user email); renders after hard deletes |
 | `changes` | Array | — | `{field, before, after}`; money as API strings (DBR-05); **sensitive fields (passwordHash, token hashes) are never diffed** |
 | `ip` | String | — | security events |

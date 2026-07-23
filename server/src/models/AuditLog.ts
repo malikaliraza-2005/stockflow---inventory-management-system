@@ -18,7 +18,13 @@ import { model, Schema, type Types } from 'mongoose';
 export const AUDIT_ENTITY_TYPES = ['PRODUCT', 'CATEGORY', 'USER', 'SETTINGS', 'SECURITY'] as const;
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[number];
 
-/** Closed action set (PDV-01) — additions require a documented review path. */
+/**
+ * Closed action set (PDV-01) — additions require a documented review path.
+ * REPEATED_FORBIDDEN is a documented extension (F1 T-d): AAD §7 mandates the
+ * BEV-03 repeated-403 pattern event but DBD §2.6's enum omitted it — resolved
+ * by the same instrument as the APR-01 error-code extensions (delta recorded
+ * in 04-Database-Design §2.6).
+ */
 export const AUDIT_ACTIONS = [
   'CREATE',
   'UPDATE',
@@ -35,6 +41,7 @@ export const AUDIT_ACTIONS = [
   'DEACTIVATE',
   'REACTIVATE',
   'TOKEN_REUSE_DETECTED',
+  'REPEATED_FORBIDDEN', // BEV-03 pattern event (AAD §7) — documented extension
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 

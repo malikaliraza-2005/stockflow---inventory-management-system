@@ -41,6 +41,106 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/auth/login': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Authenticate; set refresh cookie; return access token + profile (FR-AUTH-01/04, UC-01)
+     * @description Failure counter and lockout per BR-33; success resets the counter, stamps lastLoginAt, records a security event. Errors stay generic — the password policy is never revealed on this route (AAD §2).
+     */
+    post: operations['login'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/auth/refresh': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Rotate the refresh token; issue a new access token (FR-AUTH-02/06)
+     * @description Cookie-authenticated (no body). Reuse of a rotated token revokes the entire session family and records a security event (BR-35). Clients single-flight this call (ARB-03).
+     */
+    post: operations['refreshSession'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/auth/logout': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Revoke the current refresh token; clear the cookie (FR-AUTH-03)
+     * @description Idempotent — revoking an already-revoked/unknown token still succeeds.
+     */
+    post: operations['logout'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/auth/reset-password': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Complete an Admin-initiated reset (FR-AUTH-05, UC-03)
+     * @description Token is single-use, 30-min expiry, hashed at rest; success revokes all prior sessions and clears mustChangePassword.
+     */
+    post: operations['resetPassword'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/auth/change-password': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Change own password (FR-USER-05)
+     * @description Current password required and verified; revokes all OTHER sessions. One of the three calls a mustChangePassword session may make (AAD §2).
+     */
+    post: operations['changePassword'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -94,6 +194,50 @@ export interface components {
       limit: number;
       totalItems: number;
       totalPages: number;
+    };
+    /**
+     * @description The two operator roles (SRS §5 matrix).
+     * @enum {string}
+     */
+    Role: 'ADMIN' | 'STAFF';
+    /** @description 05 §15.1 — non-empty password only; policy never applied at login (AAD §2). */
+    LoginRequest: {
+      /** Format: email */
+      email: string;
+      password: string;
+    };
+    /** @description 05 §15.7 — BR-32 policy applies to newPassword. */
+    ResetPasswordRequest: {
+      token: string;
+      newPassword: string;
+    };
+    /** @description 05 §15.7 — new ≠ current; BR-32 policy on newPassword. */
+    ChangePasswordRequest: {
+      currentPassword: string;
+      newPassword: string;
+    };
+    /** @description The 05 §7.1 session user block — never carries credential fields (SEC-02). */
+    SessionUser: {
+      id: string;
+      name: string;
+      /** Format: email */
+      email: string;
+      role: components['schemas']['Role'];
+      mustChangePassword: boolean;
+    };
+    /** @description FCM-01 (RATIFIED 2026-07-23): read-only display constants in the session payload — Staff has no other approved endpoint for them (GET /settings stays Admin-only). Additive, EXT-01-compliant; exposes no settings management. AAD §12 · SMA §5. */
+    SessionSettings: {
+      /** @description ISO 4217 code — feeds lib/formatters. */
+      systemCurrency: string;
+      /** @description Large-movement confirm threshold (BR-15) for the movement dialogs. */
+      movementWarningThreshold: number;
+    };
+    /** @description Login/refresh 200 — access token + profile + FCM-01 display constants. */
+    SessionResponse: {
+      /** @description JWT HS256, 15-min TTL, payload sub/role/iat/exp only (SEC-01). */
+      accessToken: string;
+      user: components['schemas']['SessionUser'];
+      settings: components['schemas']['SessionSettings'];
     };
     HealthStatus: {
       /** @enum {string} */
@@ -233,6 +377,163 @@ export interface operations {
       503: {
         headers: {
           'Retry-After': components['headers']['RetryAfter'];
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope'];
+        };
+      };
+    };
+  };
+  login: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['LoginRequest'];
+      };
+    };
+    responses: {
+      /** @description Session established. Also sets the rotating refresh cookie (httpOnly · Secure · SameSite=Strict · Path=/api/v1/auth). */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SessionResponse'];
+        };
+      };
+      400: components['responses']['ValidationError'];
+      /** @description Bad credentials (generic — UNAUTHORIZED) or ACCOUNT_DEACTIVATED. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope'];
+        };
+      };
+      /** @description ACCOUNT_LOCKED — 5 consecutive failures → 15-min lock (BR-33). */
+      423: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope'];
+        };
+      };
+      429: components['responses']['RateLimited'];
+    };
+  };
+  refreshSession: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Rotated session + new refresh Set-Cookie. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SessionResponse'];
+        };
+      };
+      /** @description Missing/expired/revoked/reused token (UNAUTHORIZED). */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope'];
+        };
+      };
+    };
+  };
+  logout: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Session revoked; expired Set-Cookie returned. */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components['responses']['Unauthorized'];
+    };
+  };
+  resetPassword: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ResetPasswordRequest'];
+      };
+    };
+    responses: {
+      /** @description Password installed; all prior sessions revoked. */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      400: components['responses']['ValidationError'];
+      /** @description Invalid/expired/used token (UNAUTHORIZED). */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope'];
+        };
+      };
+      429: components['responses']['RateLimited'];
+    };
+  };
+  changePassword: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ChangePasswordRequest'];
+      };
+    };
+    responses: {
+      /** @description Password changed; other sessions revoked. */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      400: components['responses']['ValidationError'];
+      /** @description Wrong current password, or missing/invalid access token. */
+      401: {
+        headers: {
           [name: string]: unknown;
         };
         content: {

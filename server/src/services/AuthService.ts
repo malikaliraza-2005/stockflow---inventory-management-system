@@ -43,6 +43,7 @@ import {
   durationToMs,
 } from '../lib/tokens.js';
 import { RefreshToken } from '../models/RefreshToken.js';
+import { Settings } from '../models/Settings.js';
 import { User, type UserDoc } from '../models/User.js';
 import type { AuditService } from './AuditService.js';
 
@@ -70,8 +71,19 @@ export interface AuthServiceDeps {
 }
 
 export interface RequestContext {
-  ip?: string;
-  userAgent?: string;
+  ip?: string | undefined;
+  userAgent?: string | undefined;
+}
+
+/**
+ * FCM-01 (RATIFIED 2026-07-23): read-only display constants carried by the
+ * login/refresh payload — Staff has no other approved endpoint for them (the
+ * §5 matrix keeps GET /settings Admin-only). Additive, EXT-01-compliant;
+ * exposes no settings management.
+ */
+export interface SessionSettings {
+  systemCurrency: string;
+  movementWarningThreshold: number;
 }
 
 export interface AuthSession {
@@ -80,6 +92,7 @@ export interface AuthSession {
   refreshToken: string;
   refreshExpiresAt: Date;
   user: HydratedDocument<UserDoc>;
+  settings: SessionSettings;
 }
 
 /**
@@ -296,7 +309,7 @@ export class AuthService {
     userId: Types.ObjectId | string,
     currentPassword: string,
     newPassword: string,
-    options: { currentTokenHash?: string } & RequestContext = {},
+    options: { currentTokenHash?: string | undefined } & RequestContext = {},
   ): Promise<void> {
     const user = await User.findById(userId).select('+passwordHash');
     if (!user) throw new UnauthorizedError();
@@ -382,6 +395,18 @@ export class AuthService {
       this.config.accessTtl,
     );
 
-    return { accessToken, refreshToken, refreshExpiresAt, user };
+    // FCM-01: the seeded singleton (BR-41 — boot integrity guarantees it;
+    // the fallback keeps a mid-migration login from crashing).
+    const settings = await Settings.findOne({});
+    return {
+      accessToken,
+      refreshToken,
+      refreshExpiresAt,
+      user,
+      settings: {
+        systemCurrency: settings?.currency ?? 'USD',
+        movementWarningThreshold: settings?.movementWarningThreshold ?? 1000,
+      },
+    };
   }
 }
