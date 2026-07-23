@@ -35,6 +35,7 @@ export async function start(): Promise<void> {
   const app = createApp({
     logger,
     isReady: () => ready && mongoose.connection.readyState === 1,
+    env, // validated Env satisfies the AppEnv slice structurally
     trustProxyHops: env.TRUST_PROXY_HOPS,
   });
 

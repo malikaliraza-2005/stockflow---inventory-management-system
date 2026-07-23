@@ -180,7 +180,9 @@ Added to the NFR-26 integration matrix — these pin the review fixes permanentl
 
 ## 12. Open Items
 
-**FCM-01 (awaiting ratification):** include `systemCurrency` and `movementWarningThreshold` as read-only display constants in the login/refresh response payload — Staff has no other approved endpoint for them (the §5 matrix keeps `GET /settings` Admin-only). Additive and EXT-01-compliant; exposes no settings management. Ratifying closes the session-payload contract; auth mechanics are implementable regardless.
+**FCM-01 — RATIFIED 2026-07-23 (implemented in F1 T-d):** the login/refresh 200 payload carries a read-only `settings` block — `{ "systemCurrency", "movementWarningThreshold" }` — because Staff has no other approved endpoint for these display constants (the §5 matrix keeps `GET /settings` Admin-only). Additive and EXT-01-compliant; exposes no settings management. Contract recorded in `05` §7.1 and `server/openapi.yaml` (`SessionSettings`); `settingsStore` hydrates from it for both roles (SMA §5). CI tripwire `FCM-01__staff_currency_display` is enabled and green.
+
+*No open items remain.*
 
 ---
 

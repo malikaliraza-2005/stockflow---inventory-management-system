@@ -67,6 +67,33 @@ export class UnauthorizedError extends AppError {
   }
 }
 
+/** One field failure inside a 400 envelope (VAL §9 details[]). */
+export interface FieldIssue {
+  field: string;
+  message: string;
+}
+
+/** Schema-layer rejection (05 §6.1) — details is ALWAYS the field list (F1). */
+export class ValidationError extends AppError {
+  constructor(details: FieldIssue[], message = 'Validation failed.') {
+    super('VALIDATION_ERROR', message, details);
+  }
+}
+
+/** Role gate denial (§5 matrix) and the mustChangePassword fence (AAD §2) (F1). */
+export class ForbiddenError extends AppError {
+  constructor(message = 'You do not have permission to perform this action.') {
+    super('FORBIDDEN', message);
+  }
+}
+
+/** SEC-04 limiters — per-IP, per-instance (F1). */
+export class RateLimitedError extends AppError {
+  constructor(message = 'Too many requests. Please try again later.') {
+    super('RATE_LIMITED', message);
+  }
+}
+
 /** BR-33: 5 consecutive failures → 15-min lock → 423 (F1). */
 export class AccountLockedError extends AppError {
   constructor(message = 'Account temporarily locked. Try again later.') {

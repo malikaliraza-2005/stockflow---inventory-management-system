@@ -26,6 +26,8 @@ security:
 tags:
   - name: system
     description: Health endpoints — server root, public, unlimited (05 §7.11)
+  - name: auth
+    description: Authentication & sessions — 05 §7.1 (F1). Refresh token travels only as an httpOnly cookie scoped to /api/v1/auth.
 
 paths:
   /health:
@@ -73,8 +75,149 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
 
+  /auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      summary: Authenticate; set refresh cookie; return access token + profile (FR-AUTH-01/04, UC-01)
+      description: >-
+        Failure counter and lockout per BR-33; success resets the counter,
+        stamps lastLoginAt, records a security event. Errors stay generic —
+        the password policy is never revealed on this route (AAD §2).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: >-
+            Session established. Also sets the rotating refresh cookie
+            (httpOnly · Secure · SameSite=Strict · Path=/api/v1/auth).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          description: Bad credentials (generic — UNAUTHORIZED) or ACCOUNT_DEACTIVATED.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '423':
+          description: ACCOUNT_LOCKED — 5 consecutive failures → 15-min lock (BR-33).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /auth/refresh:
+    post:
+      tags: [auth]
+      operationId: refreshSession
+      summary: Rotate the refresh token; issue a new access token (FR-AUTH-02/06)
+      description: >-
+        Cookie-authenticated (no body). Reuse of a rotated token revokes the
+        entire session family and records a security event (BR-35). Clients
+        single-flight this call (ARB-03).
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Rotated session + new refresh Set-Cookie.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '401':
+          description: Missing/expired/revoked/reused token (UNAUTHORIZED).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      summary: Revoke the current refresh token; clear the cookie (FR-AUTH-03)
+      description: Idempotent — revoking an already-revoked/unknown token still succeeds.
+      responses:
+        '204':
+          description: Session revoked; expired Set-Cookie returned.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/reset-password:
+    post:
+      tags: [auth]
+      operationId: resetPassword
+      summary: Complete an Admin-initiated reset (FR-AUTH-05, UC-03)
+      description: >-
+        Token is single-use, 30-min expiry, hashed at rest; success revokes
+        all prior sessions and clears mustChangePassword.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      responses:
+        '204':
+          description: Password installed; all prior sessions revoked.
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          description: Invalid/expired/used token (UNAUTHORIZED).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /auth/change-password:
+    post:
+      tags: [auth]
+      operationId: changePassword
+      summary: Change own password (FR-USER-05)
+      description: >-
+        Current password required and verified; revokes all OTHER sessions.
+        One of the three calls a mustChangePassword session may make (AAD §2).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '204':
+          description: Password changed; other sessions revoked.
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          description: Wrong current password, or missing/invalid access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
 components:
   securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: refreshToken
+      description: >-
+        Rotating refresh session — httpOnly · Secure · SameSite=Strict,
+        scoped to /api/v1/auth (AAD §3.2). Never appears in bodies or headers.
     bearerAuth:
       type: http
       scheme: bearer
@@ -255,6 +398,97 @@ components:
         totalPages:
           type: integer
           minimum: 0
+
+    Role:
+      type: string
+      description: The two operator roles (SRS §5 matrix).
+      enum: [ADMIN, STAFF]
+
+    LoginRequest:
+      type: object
+      description: 05 §15.1 — non-empty password only; policy never applied at login (AAD §2).
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          minLength: 1
+
+    ResetPasswordRequest:
+      type: object
+      description: 05 §15.7 — BR-32 policy applies to newPassword.
+      required: [token, newPassword]
+      properties:
+        token:
+          type: string
+          minLength: 1
+        newPassword:
+          type: string
+          minLength: 10
+          maxLength: 64
+
+    ChangePasswordRequest:
+      type: object
+      description: 05 §15.7 — new ≠ current; BR-32 policy on newPassword.
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword:
+          type: string
+          minLength: 1
+        newPassword:
+          type: string
+          minLength: 10
+          maxLength: 64
+
+    SessionUser:
+      type: object
+      description: The 05 §7.1 session user block — never carries credential fields (SEC-02).
+      required: [id, name, email, role, mustChangePassword]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          $ref: '#/components/schemas/Role'
+        mustChangePassword:
+          type: boolean
+
+    SessionSettings:
+      type: object
+      description: >-
+        FCM-01 (RATIFIED 2026-07-23): read-only display constants in the
+        session payload — Staff has no other approved endpoint for them
+        (GET /settings stays Admin-only). Additive, EXT-01-compliant;
+        exposes no settings management. AAD §12 · SMA §5.
+      required: [systemCurrency, movementWarningThreshold]
+      properties:
+        systemCurrency:
+          type: string
+          description: ISO 4217 code — feeds lib/formatters.
+        movementWarningThreshold:
+          type: integer
+          minimum: 1
+          description: Large-movement confirm threshold (BR-15) for the movement dialogs.
+
+    SessionResponse:
+      type: object
+      description: Login/refresh 200 — access token + profile + FCM-01 display constants.
+      required: [accessToken, user, settings]
+      properties:
+        accessToken:
+          type: string
+          description: JWT HS256, 15-min TTL, payload sub/role/iat/exp only (SEC-01).
+        user:
+          $ref: '#/components/schemas/SessionUser'
+        settings:
+          $ref: '#/components/schemas/SessionSettings'
 
     HealthStatus:
       type: object

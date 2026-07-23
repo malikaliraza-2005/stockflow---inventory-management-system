@@ -170,7 +170,7 @@ Authenticate; set refresh cookie; return access token + profile. Failure counter
 |---|---|
 | Traces | FR-AUTH-01/04, UC-01 |
 | Request | `{ "email", "password" }` (§15.1 — errors stay generic; policy never revealed) |
-| 200 | `{ "accessToken", "user": { "id", "name", "email", "role", "mustChangePassword" } }` + `Set-Cookie` refresh (path `/api/v1/auth`) |
+| 200 | `{ "accessToken", "user": { "id", "name", "email", "role", "mustChangePassword" }, "settings": { "systemCurrency", "movementWarningThreshold" } }` + `Set-Cookie` refresh (path `/api/v1/auth`). The `settings` block is FCM-01 (ratified 2026-07-23, AAD §12): read-only display constants — Staff's only approved source for them |
 | Errors | `UNAUTHORIZED` (bad credentials — generic), `ACCOUNT_LOCKED` (423), `ACCOUNT_DEACTIVATED` |
 | DB binding | `users {email}` unique IXSCAN point · security event insert → `auditLogs` |
 
@@ -182,7 +182,7 @@ Rotate the refresh token; issue a new access token. Reuse of a rotated token rev
 |---|---|
 | Traces | FR-AUTH-02/06 |
 | Request | No body; refresh cookie only |
-| 200 | `{ "accessToken", "user": { … } }` + rotated `Set-Cookie` |
+| 200 | `{ "accessToken", "user": { … }, "settings": { … } }` (same shape as login — FCM-01) + rotated `Set-Cookie` |
 | Errors | `UNAUTHORIZED` (missing/expired/revoked/reused token) |
 | DB binding | `refreshTokens {tokenHash}` unique point · `{familyId}` on family revocation |
 

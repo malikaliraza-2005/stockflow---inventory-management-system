@@ -88,7 +88,7 @@
 | Purpose | System display constants for formatters and movement UX |
 | State | `currency: string \| null` · `defaultLowStockThreshold: number \| null` · `movementWarningThreshold: number \| null` · `loaded: boolean` |
 | Actions | `setSettings(payload)` · `clear()` |
-| Hydration | **FCM-01-dependent:** ratified → populated from the login/refresh session payload (both roles, zero extra requests); unratified → Admin-only hydration via `GET /settings`, and Staff price formatting degrades (below) |
+| Hydration | **FCM-01 ratified (2026-07-23):** populated from the login/refresh session payload's `settings` block (both roles, zero extra requests — 05 §7.1). The formatter fallback below remains as a defensive path for the pre-hydration window only |
 | **Formatter fallback (review improvement)** | `selectCurrency` returning `null` renders amounts **without a currency symbol** plus a one-time console warning — Staff sessions degrade visibly-but-gracefully, never throw in `lib/formatters` |
 | Selectors | `selectCurrency` (→ `lib/formatters`) · `selectWarningThreshold` (movement dialogs, BR-15) |
 | Persistence | None — re-hydrates with the session (stale-persist risks wrong currency rendering) |

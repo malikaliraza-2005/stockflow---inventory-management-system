@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest';
 
 import { createApp } from '../../src/app.js';
 import { createLogger } from '../../src/lib/logger.js';
+import { makeTestEnv } from '../helpers/testEnv.js';
 
 interface LogLine {
   msg: string;
@@ -29,7 +30,7 @@ function makeApp(ready: boolean) {
       lines.push(JSON.parse(chunk) as LogLine);
     },
   });
-  const app = createApp({ logger, isReady: () => ready });
+  const app = createApp({ logger, isReady: () => ready, env: makeTestEnv() });
   return { app, lines };
 }
 
