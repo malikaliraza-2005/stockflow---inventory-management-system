@@ -18,6 +18,7 @@ import bcrypt from 'bcrypt';
 import type { Env } from '../config/env.js';
 import type { Logger } from '../lib/logger.js';
 import { Category, CATEGORY_NAME_COLLATION } from '../models/Category.js';
+import { applyJsonValidators } from '../models/jsonValidators.js';
 import { Settings, SETTINGS_DEFAULTS } from '../models/Settings.js';
 import { User } from '../models/User.js';
 
@@ -37,6 +38,11 @@ export async function runSeed(
 ): Promise<SeedResult> {
   // Indexes first: the email/name unique indexes ARE the idempotency backstop.
   await Promise.all([User.init(), Category.init(), Settings.init()]);
+
+  // DBD §5 second layer — JSON-schema validators (collMod is idempotent).
+  // Release-phase placement means every environment carries them before new
+  // code serves traffic; tests inherit them by reusing this module (TST §5).
+  await applyJsonValidators();
 
   const email = env.SEED_ADMIN_EMAIL.toLowerCase();
 

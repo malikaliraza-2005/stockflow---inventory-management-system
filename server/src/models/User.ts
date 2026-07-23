@@ -4,7 +4,8 @@
  *
  * `passwordHash` is `select: false`: excluded from every query by default —
  * auth code must opt in with `.select('+passwordHash')`.
- * JSON-schema validators (DBD §5) arrive with the F1/F2 T-b tasks.
+ * Second validation layer (DBD §5): models/jsonValidators.ts, applied at the
+ * seed release phase.
  */
 import { model, Schema } from 'mongoose';
 
