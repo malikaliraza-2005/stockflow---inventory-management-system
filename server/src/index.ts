@@ -1,6 +1,13 @@
 /**
- * Entry-point placeholder — the HTTP server (Express app, pino, /health, /ready)
- * arrives with Phase-0 task 0.10 (observability spine, BEA §2).
- * Until then this module gives the build + typecheck + unit gates a real target.
+ * Entrypoint — boots the BEA §8 lifecycle. Config failures print their
+ * named-variable report and abort (NFR-28); everything after that logs
+ * through pino.
  */
-export const SERVICE_NAME = 'ims-server';
+import { start } from './server.js';
+
+start().catch((error: unknown) => {
+  // Pre-logger failures (config validation) go to stderr verbatim — the
+  // named-variable message IS the operator interface here.
+  console.error(error instanceof Error ? error.message : error);
+  process.exit(1);
+});
