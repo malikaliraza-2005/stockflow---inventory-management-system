@@ -1,0 +1,50 @@
+# Render blueprint — ims-staging API (DEP §5/§11 · prepared in task 0.12).
+# Connected at the deploy session: Render → New → Blueprint → this repo.
+#
+# Free-tier note: Render's preDeployCommand (the natural home of the DEP §11
+# seed release phase) requires a paid instance. On free tier the release phase
+# runs as a boot prefix instead (seed is idempotent; single instance in
+# staging, so the {}-filter settings upsert cannot race). Move seed to
+# preDeployCommand when the service is upgraded.
+services:
+  - type: web
+    name: ims-staging-api
+    runtime: node
+    rootDir: server
+    plan: free
+    region: singapore # nearest Render region to Atlas ap-south-1
+    buildCommand: npm ci && npm run build
+    startCommand: npm run seed && node dist/index.js
+    healthCheckPath: /ready
+    autoDeploy: true # DEP §3 — staging deploys on every merge to main
+    branch: main
+    envVars:
+      - key: NODE_ENV
+        value: staging
+      - key: TRUST_PROXY_HOPS
+        value: "1" # provisional; verified by the R-4 echo, then corrected
+      - key: ACCESS_TOKEN_TTL
+        value: 15m
+      - key: REFRESH_TOKEN_TTL
+        value: 7d
+      - key: LOG_LEVEL
+        value: info
+      # Secrets — set in the Render dashboard, never here (SEC-10):
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        sync: false
+      - key: JWT_REFRESH_SECRET
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false # https://app.<domain> — set when DNS exists
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: SEED_ADMIN_EMAIL
+        sync: false
+      - key: SEED_ADMIN_PASSWORD
+        sync: false
