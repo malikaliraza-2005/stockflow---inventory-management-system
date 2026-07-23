@@ -4,9 +4,10 @@
  * consumer (AuthService needs LOGIN_FAILED / LOCKOUT / TOKEN_REUSE_DETECTED
  * for its own acceptance suite).
  *
- * The entity-diff path (`changes[]` computation, DN-4 label capture from
- * documents, sensitive-field exclusion) lands with F2 — user updates are ITS
- * first consumer (PR 1.4).
+ * F2 adds the entity-diff path (IMP-020 Issue 2, second half): `changes[]`
+ * computation with a sensitive-field denylist, DN-4 label capture, and
+ * transaction-session support so audit rows commit ATOMICALLY inside their
+ * T3–T6 boundaries — user updates are the first consumer.
  *
  * Contract (DBD §6.2 — DES-1): INSERT-ONLY. This service exposes no update
  * or delete operation, and none may ever be added without architecture
@@ -24,7 +25,18 @@ import {
   type AuditChange,
   type AuditEntityType,
 } from '../models/AuditLog.js';
-import type { Types } from 'mongoose';
+import type { ClientSession, Types } from 'mongoose';
+
+/**
+ * NEVER diffed (DBD §2.6): credential and token material must not appear in
+ * audit rows even as "changed" markers.
+ */
+export const SENSITIVE_AUDIT_FIELDS: ReadonlySet<string> = new Set([
+  'passwordHash',
+  'resetTokenHash',
+  'resetTokenExpiresAt',
+  'tokenHash',
+]);
 
 export interface AuditEntry {
   actorId: Types.ObjectId | string;
@@ -41,12 +53,37 @@ export class AuditService {
   constructor(private readonly logger: Logger) {}
 
   /**
-   * Append one row — the awaitable core. Later features (T3–T6) call this
-   * INSIDE their transaction boundaries; F1's consumers wrap it via
+   * Append one row — the awaitable core. T3–T6 call this INSIDE their
+   * transaction boundaries (pass the session — the audit row commits or
+   * aborts WITH the change it describes); F1's consumers wrap it via
    * `securityEvent`.
    */
-  async record(entry: AuditEntry): Promise<void> {
-    await AuditLog.create([entry], {});
+  async record(
+    entry: AuditEntry,
+    options: { session?: ClientSession | undefined } = {},
+  ): Promise<void> {
+    await AuditLog.create([entry], { session: options.session });
+  }
+
+  /**
+   * The diff path (DN-4): field-by-field before/after over an explicit field
+   * list; unchanged fields are omitted; sensitive fields are NEVER diffed
+   * (silently dropped even if listed — defense against a careless caller).
+   */
+  static computeChanges(
+    before: Record<string, unknown>,
+    after: Record<string, unknown>,
+    fields: readonly string[],
+  ): AuditChange[] {
+    const changes: AuditChange[] = [];
+    for (const field of fields) {
+      if (SENSITIVE_AUDIT_FIELDS.has(field)) continue;
+      const prev = before[field];
+      const next = after[field];
+      if (prev === next || next === undefined) continue;
+      changes.push({ field, before: prev, after: next });
+    }
+    return changes;
   }
 
   /**

@@ -102,11 +102,20 @@ export interface AuthSession {
  */
 export async function revokeSessions(
   userId: Types.ObjectId | string,
-  options: { exceptTokenHash?: string | undefined; now?: Date | undefined } = {},
+  options: {
+    exceptTokenHash?: string | undefined;
+    now?: Date | undefined;
+    /** T6 passes its session so revocation commits atomically (DBD §4). */
+    session?: import('mongoose').ClientSession | undefined;
+  } = {},
 ): Promise<void> {
   const filter: Record<string, unknown> = { userId, revokedAt: null };
   if (options.exceptTokenHash) filter.tokenHash = { $ne: options.exceptTokenHash };
-  await RefreshToken.updateMany(filter, { $set: { revokedAt: options.now ?? new Date() } });
+  let query = RefreshToken.updateMany(filter, {
+    $set: { revokedAt: options.now ?? new Date() },
+  });
+  if (options.session) query = query.session(options.session);
+  await query;
 }
 
 export class AuthService {

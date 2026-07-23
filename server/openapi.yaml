@@ -28,6 +28,8 @@ tags:
     description: Health endpoints — server root, public, unlimited (05 §7.11)
   - name: auth
     description: Authentication & sessions — 05 §7.1 (F1). Refresh token travels only as an httpOnly cookie scoped to /api/v1/auth.
+  - name: users
+    description: User management — 05 §7.2 (F2). Admin-only except /users/me. No delete path exists (BR-29).
 
 paths:
   /health:
@@ -208,6 +210,221 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
+
+  /users:
+    get:
+      tags: [users]
+      operationId: listUsers
+      summary: List users (FR-USER-02, §9.12) — Admin
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - name: role
+          in: query
+          schema:
+            $ref: '#/components/schemas/Role'
+        - name: isActive
+          in: query
+          schema:
+            type: boolean
+        - name: search
+          in: query
+          description: Name/email partial match, ≤ 120 chars.
+          schema:
+            type: string
+            maxLength: 120
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [name, email, createdAt, lastLoginAt]
+            default: createdAt
+        - $ref: '#/components/parameters/order'
+      responses:
+        '200':
+          description: List envelope of user rows.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginationMeta'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [users]
+      operationId: createUser
+      summary: Provision a user with a temporary password (FR-USER-01, BR-31) — Admin
+      description: Created accounts carry mustChangePassword=true. Self-registration does not exist.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCreateRequest'
+      responses:
+        '201':
+          description: Created user (no credential fields, SEC-02).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: DUPLICATE_EMAIL — SRS §12.2 mandated 409, unique-index-backed (race-safe).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /users/me:
+    get:
+      tags: [users]
+      operationId: getOwnProfile
+      summary: Own profile (§9.14) — Any
+      responses:
+        '200':
+          description: Own profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnProfile'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    patch:
+      tags: [users]
+      operationId: updateOwnProfile
+      summary: Update own name — Any. Role/status/email changes are not possible on this route.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 2
+                  maxLength: 80
+      responses:
+        '200':
+          description: Updated profile (change audited).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnProfile'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /users/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^[0-9a-fA-F]{24}$'
+    get:
+      tags: [users]
+      operationId: getUser
+      summary: Single user — Admin
+      responses:
+        '200':
+          description: User (no credential fields).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [users]
+      operationId: updateUser
+      summary: Update name/role/isActive (FR-USER-02/03/04) — Admin
+      description: >-
+        Boundary T6 — atomic active-admin count + change + session revocation
+        + audit entry in one transaction (BR-30). Demotion/deactivation
+        revokes all target sessions immediately.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserUpdateRequest'
+      responses:
+        '200':
+          description: Updated user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: LAST_ADMIN — the last active Admin is unviolable (BR-30).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /users/{id}/reset-password:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^[0-9a-fA-F]{24}$'
+    post:
+      tags: [users]
+      operationId: issueResetLink
+      summary: Issue a single-use reset link (FR-AUTH-05, UC-03) — Admin
+      description: >-
+        Revokes the target's sessions at issue; returns the link for
+        out-of-band delivery (AS-6). Token is hashed at rest, 30-min expiry.
+      responses:
+        '200':
+          description: Reset link + expiry.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResetLinkResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
 components:
   securitySchemes:
@@ -442,6 +659,96 @@ components:
           type: string
           minLength: 10
           maxLength: 64
+
+    UserCreateRequest:
+      type: object
+      description: 05 §15.6 — temporary password per BR-32; mustChangePassword is server-set.
+      required: [name, email, role, temporaryPassword]
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 80
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        role:
+          $ref: '#/components/schemas/Role'
+        temporaryPassword:
+          type: string
+          minLength: 10
+          maxLength: 64
+
+    UserUpdateRequest:
+      type: object
+      description: Any of name/role/isActive — nothing else (05 §15.6). At least one required.
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 80
+        role:
+          $ref: '#/components/schemas/Role'
+        isActive:
+          type: boolean
+
+    User:
+      type: object
+      description: Admin-facing user row (05 §7.2) — never carries credential fields (SEC-02).
+      required: [id, name, email, role, isActive, createdAt]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          $ref: '#/components/schemas/Role'
+        isActive:
+          type: boolean
+        lastLoginAt:
+          type: string
+          format: date-time
+          description: Absent when the user has never logged in (optional-sparse rule, 05 §2).
+        createdAt:
+          type: string
+          format: date-time
+
+    OwnProfile:
+      type: object
+      description: GET/PATCH /users/me shape (05 §7.2).
+      required: [id, name, email, role, mustChangePassword]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          $ref: '#/components/schemas/Role'
+        mustChangePassword:
+          type: boolean
+        lastLoginAt:
+          type: string
+          format: date-time
+
+    ResetLinkResponse:
+      type: object
+      description: Out-of-band reset link (AS-6) — the operator delivers it themselves.
+      required: [resetLink, expiresAt]
+      properties:
+        resetLink:
+          type: string
+          format: uri
+        expiresAt:
+          type: string
+          format: date-time
 
     SessionUser:
       type: object

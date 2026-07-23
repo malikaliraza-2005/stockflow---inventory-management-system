@@ -108,6 +108,20 @@ export class AccountDeactivatedError extends AppError {
   }
 }
 
+/** SRS §12.2 mandated 409 — unique-index-backed, race-safe (APR-01 †) (F2). */
+export class DuplicateEmailError extends AppError {
+  constructor(message = 'Email already in use.') {
+    super('DUPLICATE_EMAIL', message);
+  }
+}
+
+/** BR-30: the last active Admin is unviolable — T6 atomic guard (F2). */
+export class LastAdminError extends AppError {
+  constructor(message = 'Cannot remove the last active Admin.') {
+    super('LAST_ADMIN', message);
+  }
+}
+
 /** DB down / booting / draining — carries Retry-After (NFR-20, DEP §5). */
 export class ServiceUnavailableError extends AppError {
   readonly retryAfterSeconds: number;
