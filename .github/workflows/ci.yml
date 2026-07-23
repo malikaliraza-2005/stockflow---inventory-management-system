@@ -117,6 +117,11 @@ jobs:
         working-directory: server
       - run: npm run test:integration
         working-directory: server
+      # E2E smoke shares the replica-set substrate (BEA §9); the M1 secure-shell
+      # narrative lands with F1/F2. Passes trivially (--passWithNoTests) until a
+      # feature files its flow.
+      - run: npm run test:e2e
+        working-directory: server
 
   openapi-drift:
     name: openapi-drift
