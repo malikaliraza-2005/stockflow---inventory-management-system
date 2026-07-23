@@ -14,7 +14,8 @@
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
     "test:unit": "vitest run tests/unit tests/hooks",
-    "test:component": "vitest run tests/components"
+    "test:component": "vitest run tests/components",
+    "generate:types": "openapi-typescript ../server/openapi.yaml -o src/types/api.ts && prettier --write src/types/api.ts"
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -33,6 +34,7 @@
     "eslint-config-prettier": "^10.1.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "jsdom": "^26.1.0",
+    "openapi-typescript": "^7.8.0",
     "prettier": "^3.6.0",
     "typescript": "^5.8.0",
     "typescript-eslint": "^8.35.0",

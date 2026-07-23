@@ -1,0 +1,273 @@
+# IMS REST API — contract-first stub (Phase 0, task 0.5 · NFR-27 · R-7).
+#
+# Distilled from 05-REST-API-Specification.md (APPROVED). This file is the
+# SOURCE the client types are generated from (client: npm run generate:types);
+# CI fails if client/src/types drifts from it (openapi-drift gate).
+#
+# Growth rule: each feature's T-e task (IMP-020 §1) adds its §7 endpoints here,
+# regenerates types, and commits both. Nothing is added ahead of its feature.
+openapi: 3.1.0
+
+info:
+  title: IMS REST API
+  version: 1.0.0
+  description: >-
+    Web-Based Inventory Management System API. Contract per REST-API
+    Specification 05 (approved): additive evolution only within v1; clients
+    MUST tolerate unknown response fields. All routes relative to /api/v1
+    except GET /health and GET /ready (server root, ahead of limiters/auth).
+
+servers:
+  - url: /api/v1
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: system
+    description: Health endpoints — server root, public, unlimited (05 §7.11)
+
+paths:
+  /health:
+    servers:
+      - url: /
+    get:
+      tags: [system]
+      operationId: getHealth
+      summary: Liveness — process up (NFR-14, ARB-04)
+      security: []
+      responses:
+        '200':
+          description: Process is up. No auth, no rate limit, no business data.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+
+  /ready:
+    servers:
+      - url: /
+    get:
+      tags: [system]
+      operationId: getReady
+      summary: Readiness — includes DB connectivity (NFR-15)
+      description: >-
+        Deploy gates and load-balancer checks target this endpoint. False
+        during boot (before Mongo connect + integrity check) and after SIGTERM
+        (drain) per BEA §8.
+      security: []
+      responses:
+        '200':
+          description: Ready to serve traffic.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadyStatus'
+        '503':
+          description: Not ready (DB down / booting / draining). Carries Retry-After (NFR-20).
+          headers:
+            Retry-After:
+              $ref: '#/components/headers/RetryAfter'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Access token — 15-min TTL, payload sub/role/iat/exp only (SEC-01).
+        The rotating refresh token travels exclusively as an httpOnly cookie
+        scoped to /api/v1/auth and never appears in this contract's bodies.
+
+  headers:
+    XCorrelationId:
+      description: Correlation ID echoed on every response (NFR-23, 05 §1).
+      schema:
+        type: string
+    RetryAfter:
+      description: Seconds to wait before retrying (NFR-20).
+      schema:
+        type: integer
+        minimum: 0
+
+  parameters:
+    page:
+      name: page
+      in: query
+      description: 1-based page number (05 §5).
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    limit:
+      name: limit
+      in: query
+      description: Page size — hard cap 100; values above cap → VALIDATION_ERROR (NFR-10).
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    sort:
+      name: sort
+      in: query
+      description: Sort field — sortable fields enumerated per endpoint; unknown → VALIDATION_ERROR.
+      schema:
+        type: string
+    order:
+      name: order
+      in: query
+      description: Sort direction companion to sort (APD-01). Default desc.
+      schema:
+        type: string
+        enum: [asc, desc]
+        default: desc
+
+  responses:
+    ValidationError:
+      description: Request failed schema validation before the controller ran (05 §1).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Unauthorized:
+      description: Missing/invalid token, or account deactivated (UNAUTHORIZED | ACCOUNT_DEACTIVATED).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Forbidden:
+      description: Role insufficient per the §5 permission matrix (FORBIDDEN).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    NotFound:
+      description: Resource not found (NOT_FOUND).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    RateLimited:
+      description: Rate limit exceeded (RATE_LIMITED, SEC-04).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    InternalError:
+      description: Opaque internal error — correlation ID only, no internals (SEC-12).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    ServiceUnavailable:
+      description: DB down / not ready; carries Retry-After (NFR-20).
+      headers:
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+
+  schemas:
+    ErrorCode:
+      type: string
+      description: >-
+        The CLOSED set of codes this API may emit — SRS §16.3 catalog plus the
+        three documented APR-01 extensions (DUPLICATE_EMAIL, PRODUCT_NOT_EMPTY,
+        PRODUCT_HAS_HISTORY). 05 §6.2.
+      enum:
+        - VALIDATION_ERROR
+        - UNAUTHORIZED
+        - ACCOUNT_DEACTIVATED
+        - FORBIDDEN
+        - NOT_FOUND
+        - DUPLICATE_SKU
+        - DUPLICATE_BARCODE
+        - DUPLICATE_EMAIL
+        - INSUFFICIENT_STOCK
+        - STALE_WRITE
+        - LAST_ADMIN
+        - PRODUCT_ARCHIVED
+        - PRODUCT_NOT_EMPTY
+        - PRODUCT_HAS_HISTORY
+        - CATEGORY_IN_USE
+        - INVALID_BARCODE
+        - IDEMPOTENCY_CONFLICT
+        - ACCOUNT_LOCKED
+        - RATE_LIMITED
+        - INTERNAL_ERROR
+        - SERVICE_UNAVAILABLE
+
+    ValidationErrorDetail:
+      type: object
+      description: VALIDATION_ERROR uses details = array of these (05 §6.1).
+      required: [field, message]
+      properties:
+        field:
+          type: string
+        message:
+          type: string
+
+    ErrorEnvelope:
+      type: object
+      description: The single error envelope every non-2xx JSON response uses (SRS §16.2, 05 §6.1).
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, correlationId]
+          properties:
+            code:
+              $ref: '#/components/schemas/ErrorCode'
+            message:
+              type: string
+              description: Human-readable; the frontend maps code → message via its own table (05 §6.2).
+            details:
+              description: Optional, code-specific payload (e.g. available/requested for INSUFFICIENT_STOCK).
+            correlationId:
+              type: string
+              description: Echoes X-Correlation-Id — surfaced in error toasts (NFR-23).
+
+    PaginationMeta:
+      type: object
+      description: >-
+        List-envelope metadata (05 §5, FR-SRCH-03). Every list endpoint returns
+        { data: [...], ...PaginationMeta }; data item types are per-endpoint.
+      required: [page, limit, totalItems, totalPages]
+      properties:
+        page:
+          type: integer
+          minimum: 1
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+        totalItems:
+          type: integer
+          minimum: 0
+        totalPages:
+          type: integer
+          minimum: 0
+
+    HealthStatus:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+
+    ReadyStatus:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ready]
