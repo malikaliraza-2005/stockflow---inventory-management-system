@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "seed": "node dist/seeds/run.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
@@ -16,6 +17,7 @@
     "test:e2e": "vitest run tests/e2e --passWithNoTests"
   },
   "dependencies": {
+    "bcrypt": "^6.0.0",
     "express": "^4.22.2",
     "mongoose": "^8.16.0",
     "pino": "^10.3.1",
@@ -23,6 +25,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.30.0",
+    "@types/bcrypt": "^6.0.0",
     "@types/express": "^4.17.25",
     "@types/node": "^22.15.0",
     "@types/supertest": "^7.2.1",
@@ -38,6 +41,7 @@
   },
   "allowScripts": {
     "esbuild@0.28.1": true,
-    "mongodb-memory-server@10.4.3": true
+    "mongodb-memory-server@10.4.3": true,
+    "bcrypt@6.0.0": true
   }
 }
