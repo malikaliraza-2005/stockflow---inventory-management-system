@@ -3,8 +3,7 @@
 # stops the pipeline. Every job below is a required status check on `main`
 # (branch protection) — all merge-blocking per NFR-26.
 #
-# Shell status (Phase 0, task 0.3):
-#   - unit (client) passes with no tests until P1 stores/hooks land (flag removed then)
+# Shell status (Phase 0):
 #   - openapi-drift is pending until task 0.5 files the contract stub
 #   - deploy-to-staging on merge arrives with task 0.6 (environments) — DEP §11
 #   - E2E smoke / axe are RELEASE gates (TST §6), not PR gates — not here
