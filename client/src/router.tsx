@@ -15,6 +15,7 @@ import { ErrorFallback } from './components/layout/ErrorFallback';
 import { ForcePasswordChangeGate } from './components/layout/ForcePasswordChange';
 import { PublicLayout } from './components/layout/PublicLayout';
 import { RequireAuth } from './components/layout/RequireAuth';
+import { RequireRole } from './components/layout/RequireRole';
 // Eager auth chunk — smallest first paint (NFR-03)
 import LoginPage from './pages/Login';
 import ResetPasswordPage from './pages/ResetPassword';
@@ -44,6 +45,26 @@ export const router = createBrowserRouter([
                     lazy: async () => ({
                       Component: (await import('./pages/Dashboard')).default,
                     }),
+                  },
+                  {
+                    // core chunk — Any role
+                    path: 'profile',
+                    lazy: async () => ({
+                      Component: (await import('./pages/Profile')).default,
+                    }),
+                  },
+                  {
+                    // admin chunk — guard OUTSIDE lazy (SMP Issue 2: the chunk
+                    // must not download before the role check)
+                    element: <RequireRole role="ADMIN" />,
+                    children: [
+                      {
+                        path: 'users',
+                        lazy: async () => ({
+                          Component: (await import('./pages/Users')).default,
+                        }),
+                      },
+                    ],
                   },
                   {
                     path: '*',
