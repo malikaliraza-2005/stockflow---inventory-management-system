@@ -18,6 +18,8 @@
     "generate:types": "openapi-typescript ../server/openapi.yaml -o src/types/api.ts && prettier --write src/types/api.ts"
   },
   "dependencies": {
+    "@zxing/browser": "^0.2.1",
+    "@zxing/library": "^0.23.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "zod": "^4.0.0"

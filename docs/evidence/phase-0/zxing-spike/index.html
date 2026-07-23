@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>IMS ZXing Spike (R-1)</title>
+  <!-- Vendored UMD builds — @zxing/library 0.23.0 · @zxing/browser 0.2.1
+       (same packages as client/package.json; no CDN so the spike runs offline) -->
+  <script src="./zxing-library.min.js"></script>
+  <script src="./zxing-browser.min.js"></script>
+  <style>
+    :root { color-scheme: dark; }
+    body { font-family: system-ui, sans-serif; margin: 0; background: #111; color: #eee; }
+    header { padding: .6rem 1rem; background: #1b3a2d; }
+    h1 { font-size: 1rem; margin: 0; }
+    main { padding: .8rem; max-width: 640px; margin: 0 auto; }
+    video { width: 100%; max-height: 45vh; background: #000; border-radius: 8px; }
+    .row { display: flex; gap: .5rem; margin: .6rem 0; flex-wrap: wrap; align-items: center; }
+    button, select { font-size: 1rem; padding: .55rem .9rem; border-radius: 8px; border: 1px solid #555; background: #222; color: #eee; }
+    button.primary { background: #1f6f43; border-color: #1f6f43; }
+    #state { padding: .5rem .8rem; border-radius: 8px; background: #222; font-weight: 600; }
+    #state.ok { background: #14532d; } #state.err { background: #7f1d1d; }
+    #result { font-size: 1.15rem; word-break: break-all; background: #222; padding: .7rem; border-radius: 8px; min-height: 2.4rem; }
+    #log { font-family: ui-monospace, monospace; font-size: .78rem; white-space: pre-wrap; background: #181818; padding: .6rem; border-radius: 8px; max-height: 30vh; overflow-y: auto; }
+    small { color: #9a9a9a; display: block; margin-top: .8rem; word-break: break-all; }
+  </style>
+</head>
+<body>
+  <header><h1>IMS · ZXing device spike (R-1) — Phase 0 task 0.11</h1></header>
+  <main>
+    <div class="row">
+      <span id="state">idle</span>
+      <button class="primary" id="start">Start camera</button>
+      <button id="stop" disabled>Stop</button>
+      <button id="torch" disabled>Torch</button>
+    </div>
+    <div class="row"><select id="cameras" style="flex:1"></select></div>
+    <video id="video" muted playsinline></video>
+    <div class="row" style="justify-content:space-between">
+      <strong>Last decode:</strong><span id="latency"></span>
+    </div>
+    <div id="result">—</div>
+    <div class="row"><button id="copy">Copy log for report</button><button id="clear">Clear log</button></div>
+    <div id="log"></div>
+    <small id="device"></small>
+  </main>
+
+  <script>
+    // Spike protocol per FEA §6.1 concerns: init time, continuous-decode latency,
+    // format coverage (EAN-13 / UPC-A / Code-128 / QR), error states, torch.
+    const { BrowserMultiFormatReader } = ZXingBrowser;
+    const els = Object.fromEntries(
+      ['state','start','stop','torch','cameras','video','result','latency','log','device','copy','clear']
+        .map(id => [id, document.getElementById(id)])
+    );
+
+    els.device.textContent = navigator.userAgent + ' · secureContext=' + window.isSecureContext;
+
+    const t0 = () => performance.now();
+    let controls = null, startClickAt = 0, firstFrameAt = 0, lastDecodeText = '', lastDecodeAt = 0, track = null;
+
+    function log(line) {
+      const stamp = new Date().toISOString().slice(11, 23);
+      els.log.textContent = `[${stamp}] ${line}\n` + els.log.textContent;
+    }
+    function setState(text, cls) { els.state.textContent = text; els.state.className = cls || ''; }
+
+    async function listCameras() {
+      try {
+        const devices = await ZXingBrowser.BrowserCodeReader.listVideoInputDevices();
+        els.cameras.innerHTML = devices.map(d =>
+          `<option value="${d.deviceId}">${d.label || 'camera ' + d.deviceId.slice(0, 6)}</option>`).join('');
+        const back = devices.find(d => /back|rear|environment/i.test(d.label));
+        if (back) els.cameras.value = back.deviceId;
+        log(`cameras: ${devices.length} found`);
+      } catch (e) { log('enumerate failed: ' + e.name); }
+    }
+
+    async function start() {
+      startClickAt = t0(); firstFrameAt = 0;
+      setState('starting…');
+      const reader = new BrowserMultiFormatReader();
+      const deviceId = els.cameras.value || undefined;
+      // Constraint fallback chain: chosen device → back camera → any camera.
+      // (Pre-permission, browsers hide device IDs — an exact-id request then
+      // throws OverconstrainedError; fall through instead of failing.)
+      const attempts = [
+        deviceId ? { video: { deviceId: { exact: deviceId } } } : null,
+        { video: { facingMode: { ideal: 'environment' } } },
+        { video: true },
+      ].filter(Boolean);
+      const onFrame = (result, err) => {
+        if (!firstFrameAt && els.video.readyState >= 2) {
+          firstFrameAt = t0();
+          log(`camera ready in ${(firstFrameAt - startClickAt).toFixed(0)} ms`);
+          setState('scanning', 'ok');
+        }
+        if (result) {
+          const now = t0();
+          const text = result.getText();
+          const format = ZXing.BarcodeFormat[result.getBarcodeFormat()];
+          // de-dupe continuous re-reads of the same code within 1.5 s
+          if (text === lastDecodeText && now - lastDecodeAt < 1500) { lastDecodeAt = now; return; }
+          lastDecodeText = text; lastDecodeAt = now;
+          els.result.textContent = `${format}: ${text}`;
+          els.latency.textContent = `${(now - firstFrameAt).toFixed(0)} ms after camera-ready`;
+          log(`DECODE ${format} "${text}" (+${(now - firstFrameAt).toFixed(0)} ms)`);
+          if (navigator.vibrate) navigator.vibrate(80);
+        }
+      };
+      try {
+        let lastErr = null; controls = null;
+        for (const constraints of attempts) {
+          try { controls = await reader.decodeFromConstraints(constraints, els.video, onFrame); break; }
+          catch (e) { lastErr = e; log('constraints rejected (' + e.name + '), trying fallback…'); }
+        }
+        if (!controls) throw lastErr;
+        els.start.disabled = true; els.stop.disabled = false;
+        await listCameras(); // labels populate after permission grant
+        // torch capability probe
+        track = els.video.srcObject && els.video.srcObject.getVideoTracks()[0];
+        const caps = track && track.getCapabilities ? track.getCapabilities() : {};
+        if (caps.torch) { els.torch.disabled = false; log('torch: supported'); }
+        else log('torch: NOT supported on this track');
+      } catch (e) {
+        // The named failure states the P4 machine will need (FR-SCAN):
+        const map = { NotAllowedError: 'permission-denied', NotFoundError: 'no-camera',
+                      NotReadableError: 'camera-busy', OverconstrainedError: 'bad-constraints' };
+        setState(map[e.name] || ('error: ' + e.name), 'err');
+        log(`START FAILED: ${e.name} — ${e.message}`);
+      }
+    }
+
+    let torchOn = false;
+    els.torch.onclick = async () => {
+      try { torchOn = !torchOn; await track.applyConstraints({ advanced: [{ torch: torchOn }] });
+            log('torch ' + (torchOn ? 'ON' : 'OFF')); }
+      catch (e) { log('torch failed: ' + e.name); }
+    };
+    els.start.onclick = start;
+    els.stop.onclick = () => { controls?.stop(); setState('stopped'); els.start.disabled = false; els.stop.disabled = true; els.torch.disabled = true; };
+    els.copy.onclick = () => navigator.clipboard.writeText(els.device.textContent + '\n' + els.log.textContent).then(() => log('log copied'));
+    els.clear.onclick = () => { els.log.textContent = ''; };
+
+    if (!window.isSecureContext) setState('INSECURE CONTEXT — camera blocked (serve via HTTPS)', 'err');
+    else listCameras();
+  </script>
+</body>
+</html>
