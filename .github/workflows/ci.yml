@@ -1,0 +1,172 @@
+# TST-IMS-017 §6 — PR gate chain (extends SRS §18.3).
+# Execution order is FIXED; each job `needs` the previous one, so a red tier
+# stops the pipeline. Every job below is a required status check on `main`
+# (branch protection) — all merge-blocking per NFR-26.
+#
+# Shell status (Phase 0, task 0.3):
+#   - unit (client) passes with no tests until P1 stores/hooks land (flag removed then)
+#   - openapi-drift is pending until task 0.5 files the contract stub
+#   - deploy-to-staging on merge arrives with task 0.6 (environments) — DEP §11
+#   - E2E smoke / axe are RELEASE gates (TST §6), not PR gates — not here
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: |
+            client/package-lock.json
+            server/package-lock.json
+      - run: npm ci
+        working-directory: server
+      - run: npm ci
+        working-directory: client
+      - run: npm run lint
+        working-directory: server
+      - run: npm run lint
+        working-directory: client
+
+  typecheck:
+    name: typecheck
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: |
+            client/package-lock.json
+            server/package-lock.json
+      - run: npm ci
+        working-directory: server
+      - run: npm ci
+        working-directory: client
+      - run: npm run typecheck
+        working-directory: server
+      - run: npm run typecheck
+        working-directory: client
+
+  unit:
+    name: unit
+    needs: typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: |
+            client/package-lock.json
+            server/package-lock.json
+      - run: npm ci
+        working-directory: server
+      - run: npm ci
+        working-directory: client
+      - run: npm run test:unit
+        working-directory: server
+      - run: npm run test:unit
+        working-directory: client
+
+  component:
+    name: component
+    needs: unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - run: npm ci
+        working-directory: client
+      - run: npm run test:component
+        working-directory: client
+
+  integration:
+    name: integration
+    needs: component
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      # mongodb-memory-server binary cache — replica-set mode per TST §2
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/mongodb-binaries
+          key: mongodb-binaries-${{ runner.os }}
+      - run: npm ci
+        working-directory: server
+      - run: npm run test:integration
+        working-directory: server
+
+  openapi-drift:
+    name: openapi-drift
+    needs: integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Placeholder until task 0.5 files server/openapi.yaml (NFR-27, R-7).
+      # Once the stub exists this step regenerates types and fails on diff.
+      - run: |
+          if [ -f server/openapi.yaml ]; then
+            echo "::error::openapi.yaml exists but the drift check is not wired — finish task 0.5"
+            exit 1
+          fi
+          echo "openapi-drift: pending contract stub (task 0.5) — trivially green by design"
+
+  cve-scan:
+    name: cve-scan
+    needs: openapi-drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      # SRS §18.3 / SEC-12: dependency vulnerability scan, fail on critical
+      - run: npm audit --audit-level=critical
+        working-directory: server
+      - run: npm audit --audit-level=critical
+        working-directory: client
+
+  build:
+    name: build
+    needs: cve-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: |
+            client/package-lock.json
+            server/package-lock.json
+      - run: npm ci
+        working-directory: server
+      - run: npm ci
+        working-directory: client
+      - run: npm run build
+        working-directory: server
+      - run: npm run build
+        working-directory: client
