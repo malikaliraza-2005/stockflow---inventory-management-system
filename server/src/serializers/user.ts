@@ -28,3 +28,48 @@ export function serializeSessionUser(user: HydratedDocument<UserDoc>): SessionUs
     mustChangePassword: user.mustChangePassword,
   };
 }
+
+/** The 05 §7.2 admin-facing user row (list + detail — no credential fields). */
+export interface UserPayload {
+  id: string;
+  name: string;
+  email: string;
+  role: UserDoc['role'];
+  isActive: boolean;
+  lastLoginAt?: string;
+  createdAt: string;
+}
+
+export function serializeUser(user: HydratedDocument<UserDoc>): UserPayload {
+  return {
+    id: user._id.toString(),
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    isActive: user.isActive,
+    // Optional-sparse rule (05 §2): absent, never null
+    ...(user.lastLoginAt ? { lastLoginAt: user.lastLoginAt.toISOString() } : {}),
+    createdAt: user.createdAt.toISOString(),
+  };
+}
+
+/** The 05 §7.2 own-profile shape (GET/PATCH /users/me). */
+export interface OwnProfilePayload {
+  id: string;
+  name: string;
+  email: string;
+  role: UserDoc['role'];
+  mustChangePassword: boolean;
+  lastLoginAt?: string;
+}
+
+export function serializeOwnProfile(user: HydratedDocument<UserDoc>): OwnProfilePayload {
+  return {
+    id: user._id.toString(),
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    mustChangePassword: user.mustChangePassword,
+    ...(user.lastLoginAt ? { lastLoginAt: user.lastLoginAt.toISOString() } : {}),
+  };
+}

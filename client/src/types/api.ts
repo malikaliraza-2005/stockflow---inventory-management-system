@@ -141,6 +141,90 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/users': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** List users (FR-USER-02, §9.12) — Admin */
+    get: operations['listUsers'];
+    put?: never;
+    /**
+     * Provision a user with a temporary password (FR-USER-01, BR-31) — Admin
+     * @description Created accounts carry mustChangePassword=true. Self-registration does not exist.
+     */
+    post: operations['createUser'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/users/me': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Own profile (§9.14) — Any */
+    get: operations['getOwnProfile'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    /** Update own name — Any. Role/status/email changes are not possible on this route. */
+    patch: operations['updateOwnProfile'];
+    trace?: never;
+  };
+  '/users/{id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    /** Single user — Admin */
+    get: operations['getUser'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    /**
+     * Update name/role/isActive (FR-USER-02/03/04) — Admin
+     * @description Boundary T6 — atomic active-admin count + change + session revocation + audit entry in one transaction (BR-30). Demotion/deactivation revokes all target sessions immediately.
+     */
+    patch: operations['updateUser'];
+    trace?: never;
+  };
+  '/users/{id}/reset-password': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Issue a single-use reset link (FR-AUTH-05, UC-03) — Admin
+     * @description Revokes the target's sessions at issue; returns the link for out-of-band delivery (AS-6). Token is hashed at rest, 30-min expiry.
+     */
+    post: operations['issueResetLink'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -215,6 +299,54 @@ export interface components {
     ChangePasswordRequest: {
       currentPassword: string;
       newPassword: string;
+    };
+    /** @description 05 §15.6 — temporary password per BR-32; mustChangePassword is server-set. */
+    UserCreateRequest: {
+      name: string;
+      /** Format: email */
+      email: string;
+      role: components['schemas']['Role'];
+      temporaryPassword: string;
+    };
+    /** @description Any of name/role/isActive — nothing else (05 §15.6). At least one required. */
+    UserUpdateRequest: {
+      name?: string;
+      role?: components['schemas']['Role'];
+      isActive?: boolean;
+    };
+    /** @description Admin-facing user row (05 §7.2) — never carries credential fields (SEC-02). */
+    User: {
+      id: string;
+      name: string;
+      /** Format: email */
+      email: string;
+      role: components['schemas']['Role'];
+      isActive: boolean;
+      /**
+       * Format: date-time
+       * @description Absent when the user has never logged in (optional-sparse rule, 05 §2).
+       */
+      lastLoginAt?: string;
+      /** Format: date-time */
+      createdAt: string;
+    };
+    /** @description GET/PATCH /users/me shape (05 §7.2). */
+    OwnProfile: {
+      id: string;
+      name: string;
+      /** Format: email */
+      email: string;
+      role: components['schemas']['Role'];
+      mustChangePassword: boolean;
+      /** Format: date-time */
+      lastLoginAt?: string;
+    };
+    /** @description Out-of-band reset link (AS-6) — the operator delivers it themselves. */
+    ResetLinkResponse: {
+      /** Format: uri */
+      resetLink: string;
+      /** Format: date-time */
+      expiresAt: string;
     };
     /** @description The 05 §7.1 session user block — never carries credential fields (SEC-02). */
     SessionUser: {
@@ -540,6 +672,218 @@ export interface operations {
           'application/json': components['schemas']['ErrorEnvelope'];
         };
       };
+    };
+  };
+  listUsers: {
+    parameters: {
+      query?: {
+        /** @description 1-based page number (05 §5). */
+        page?: components['parameters']['page'];
+        /** @description Page size — hard cap 100; values above cap → VALIDATION_ERROR (NFR-10). */
+        limit?: components['parameters']['limit'];
+        role?: components['schemas']['Role'];
+        isActive?: boolean;
+        /** @description Name/email partial match, ≤ 120 chars. */
+        search?: string;
+        sort?: 'name' | 'email' | 'createdAt' | 'lastLoginAt';
+        /** @description Sort direction companion to sort (APD-01). Default desc. */
+        order?: components['parameters']['order'];
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description List envelope of user rows. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PaginationMeta'] & {
+            data: components['schemas']['User'][];
+          };
+        };
+      };
+      400: components['responses']['ValidationError'];
+      401: components['responses']['Unauthorized'];
+      403: components['responses']['Forbidden'];
+    };
+  };
+  createUser: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['UserCreateRequest'];
+      };
+    };
+    responses: {
+      /** @description Created user (no credential fields, SEC-02). */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['User'];
+        };
+      };
+      400: components['responses']['ValidationError'];
+      401: components['responses']['Unauthorized'];
+      403: components['responses']['Forbidden'];
+      /** @description DUPLICATE_EMAIL — SRS §12.2 mandated 409, unique-index-backed (race-safe). */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope'];
+        };
+      };
+    };
+  };
+  getOwnProfile: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Own profile. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['OwnProfile'];
+        };
+      };
+      401: components['responses']['Unauthorized'];
+    };
+  };
+  updateOwnProfile: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': {
+          name: string;
+        };
+      };
+    };
+    responses: {
+      /** @description Updated profile (change audited). */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['OwnProfile'];
+        };
+      };
+      400: components['responses']['ValidationError'];
+      401: components['responses']['Unauthorized'];
+    };
+  };
+  getUser: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description User (no credential fields). */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['User'];
+        };
+      };
+      401: components['responses']['Unauthorized'];
+      403: components['responses']['Forbidden'];
+      404: components['responses']['NotFound'];
+    };
+  };
+  updateUser: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['UserUpdateRequest'];
+      };
+    };
+    responses: {
+      /** @description Updated user. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['User'];
+        };
+      };
+      400: components['responses']['ValidationError'];
+      401: components['responses']['Unauthorized'];
+      403: components['responses']['Forbidden'];
+      404: components['responses']['NotFound'];
+      /** @description LAST_ADMIN — the last active Admin is unviolable (BR-30). */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope'];
+        };
+      };
+    };
+  };
+  issueResetLink: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Reset link + expiry. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ResetLinkResponse'];
+        };
+      };
+      400: components['responses']['ValidationError'];
+      401: components['responses']['Unauthorized'];
+      403: components['responses']['Forbidden'];
+      404: components['responses']['NotFound'];
     };
   };
 }

@@ -20,16 +20,20 @@ import mongoSanitize from 'express-mongo-sanitize';
 import helmet from 'helmet';
 
 import { createAuthController } from './controllers/authController.js';
+import { createUsersController } from './controllers/usersController.js';
 import { NotFoundError, ServiceUnavailableError } from './errors/AppError.js';
 import type { Logger } from './lib/logger.js';
 import { authenticate } from './middleware/authenticate.js';
+import { createAuthorize } from './middleware/authorize.js';
 import { createErrorHandler } from './middleware/errorHandler.js';
 import { httpLogger } from './middleware/httpLogger.js';
 import { createGlobalLimiter, createStrictLimiter } from './middleware/rateLimiters.js';
 import { requestId } from './middleware/requestId.js';
 import { createAuthRouter } from './routes/auth.js';
+import { createUsersRouter } from './routes/users.js';
 import { AuditService } from './services/AuditService.js';
 import { AuthService } from './services/AuthService.js';
+import { UserService } from './services/UserService.js';
 
 /** The env slice the pipeline consumes — server.ts passes the validated Env. */
 export interface AppEnv {
@@ -132,9 +136,14 @@ export function createApp(deps: AppDeps): Express {
     },
   });
   const authenticateMw = authenticate(env.JWT_ACCESS_SECRET);
-  // authorize(...) ships this PR (middleware/authorize.ts, unit-tested) but
-  // is WIRED with its first consumer — F2's /users router (first-consumer law:
-  // every /auth row is Public or Any).
+  // App-scoped authorize: ONE BEV-03 denial window per instance (F2 — its
+  // first consumer, the /users router).
+  const authorize = createAuthorize({ audit });
+  const userService = new UserService({
+    audit,
+    authService,
+    clientOrigin: env.CORS_ORIGIN, // reset links point at the frontend (AS-6)
+  });
 
   app.use(
     '/api/v1/auth',
@@ -148,6 +157,15 @@ export function createApp(deps: AppDeps): Express {
         windowMs: env.RATE_LIMIT_STRICT_WINDOW_MS,
         max: env.RATE_LIMIT_STRICT_MAX,
       }),
+    }),
+  );
+
+  app.use(
+    '/api/v1/users',
+    createUsersRouter({
+      controller: createUsersController(userService),
+      authenticate: authenticateMw,
+      authorize,
     }),
   );
 

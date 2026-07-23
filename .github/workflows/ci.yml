@@ -141,6 +141,11 @@ jobs:
             echo "::error::client/src/types drifted from server/openapi.yaml — run 'npm run generate:types' in client/ and commit the result"
             exit 1
           fi
+      # FD-3 / AAD §5.1: the frontend permission matrix is GENERATED from the
+      # single SRS §5.2 definition (server/src/config/permissionMatrix.ts) —
+      # never hand-maintained in two places.
+      - run: node scripts/generate-permissions.mjs --check
+        working-directory: server
 
   cve-scan:
     name: cve-scan
