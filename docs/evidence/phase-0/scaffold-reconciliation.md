@@ -39,6 +39,14 @@ manifest transcribed from FST-IMS-008 §1–§3 (44 directories). The diff was e
   the R-1 ZXing spike report (0.11), and the DEP §12 environment checklists (0.12).
   It extends `docs/` only; the FST-governed `client/`/`server/` trees are untouched.
 
+## Amendments
+
+- **2026-07-23 (task 0.4):** `client/tests/unit/` added as the home of the
+  "Unit (frontend)" tier (TST §2) — FST-008's client test tree named only
+  `components/ hooks/ e2e/`, leaving that tier without a folder. Mirrors
+  `server/tests/unit/`. First occupant: the FEV-03 config-module tests.
+  Approved with task 0.4.
+
 ---
 
 *Filed under Phase 0 · gate item "Scaffold reconciliation merged" (phase-0-foundations.md DoD)*

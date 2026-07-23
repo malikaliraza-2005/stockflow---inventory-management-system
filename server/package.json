@@ -16,7 +16,8 @@
     "test:e2e": "vitest run tests/e2e --passWithNoTests"
   },
   "dependencies": {
-    "mongoose": "^8.16.0"
+    "mongoose": "^8.16.0",
+    "zod": "^4.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.30.0",

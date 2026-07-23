@@ -1,0 +1,10 @@
+# LF everywhere — repo and working tree (fixes the empty file from commit 8386917).
+# eol=lf overrides core.autocrlf, so Windows checkouts stay LF and match
+# Prettier's endOfLine default; CI (Linux) sees identical bytes.
+* text=auto eol=lf
+
+# binaries — never touch
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff2 binary
