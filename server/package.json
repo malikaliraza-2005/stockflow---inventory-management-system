@@ -16,11 +16,13 @@
     "test:e2e": "vitest run tests/e2e --passWithNoTests"
   },
   "dependencies": {
+    "express": "^4.22.2",
     "mongoose": "^8.16.0",
     "zod": "^4.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.30.0",
+    "@types/express": "^4.17.25",
     "@types/node": "^22.15.0",
     "eslint": "^9.30.0",
     "eslint-config-prettier": "^10.1.0",
@@ -28,7 +30,8 @@
     "prettier": "^3.6.0",
     "typescript": "^5.8.0",
     "typescript-eslint": "^8.35.0",
-    "vitest": "^3.2.0"
+    "vitest": "^3.2.0",
+    "yaml": "^2.9.0"
   },
   "allowScripts": {
     "esbuild@0.28.1": true,
