@@ -124,14 +124,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # Placeholder until task 0.5 files server/openapi.yaml (NFR-27, R-7).
-      # Once the stub exists this step regenerates types and fails on diff.
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - run: npm ci
+        working-directory: client
+      # NFR-27 / R-7: types are generated from the CONTRACT (server/openapi.yaml),
+      # never from a running server. A diff here means the contract changed
+      # without regenerating + committing client/src/types (or vice versa).
+      - run: npm run generate:types
+        working-directory: client
       - run: |
-          if [ -f server/openapi.yaml ]; then
-            echo "::error::openapi.yaml exists but the drift check is not wired — finish task 0.5"
+          if ! git diff --exit-code -- client/src/types; then
+            echo "::error::client/src/types drifted from server/openapi.yaml — run 'npm run generate:types' in client/ and commit the result"
             exit 1
           fi
-          echo "openapi-drift: pending contract stub (task 0.5) — trivially green by design"
 
   cve-scan:
     name: cve-scan
