@@ -43,3 +43,22 @@
       sans-serif; /* FD-5: system stack, no self-hosted fonts */
   }
 }
+
+/* QRLabel print isolation (F4, FR-PROD-08): print only the label, hide the app
+   chrome. The label modal content is wrapped in `.qr-print`. */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .qr-print,
+  .qr-print * {
+    visibility: visible;
+  }
+  .qr-print {
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    height: fit-content;
+    width: fit-content;
+  }
+}
