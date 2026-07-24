@@ -61,6 +61,19 @@ export const router = createBrowserRouter([
                     }),
                   },
                   {
+                    // Products list + detail — Any role views (writes gated in-page)
+                    path: 'products',
+                    lazy: async () => ({
+                      Component: (await import('./pages/Products')).default,
+                    }),
+                  },
+                  {
+                    path: 'products/:id',
+                    lazy: async () => ({
+                      Component: (await import('./pages/ProductDetail')).default,
+                    }),
+                  },
+                  {
                     // admin chunk — guard OUTSIDE lazy (SMP Issue 2: the chunk
                     // must not download before the role check)
                     element: <RequireRole role="ADMIN" />,
@@ -69,6 +82,19 @@ export const router = createBrowserRouter([
                         path: 'users',
                         lazy: async () => ({
                           Component: (await import('./pages/Users')).default,
+                        }),
+                      },
+                      {
+                        // Admin catalog-write routes — guard OUTSIDE lazy (SMP Issue 2)
+                        path: 'products/new',
+                        lazy: async () => ({
+                          Component: (await import('./pages/AddProduct')).default,
+                        }),
+                      },
+                      {
+                        path: 'products/:id/edit',
+                        lazy: async () => ({
+                          Component: (await import('./pages/EditProduct')).default,
                         }),
                       },
                     ],
