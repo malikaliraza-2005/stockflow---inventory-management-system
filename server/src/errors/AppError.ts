@@ -188,6 +188,31 @@ export class InvalidBarcodeError extends AppError {
   }
 }
 
+/**
+ * BR-11: a STOCK_OUT / negative ADJUSTMENT lost the `quantity ≥ requested`
+ * conditional update (F6, T1). `details.available` is the server-authoritative
+ * quantity at execution time — the dialog renders it inline ("Only {available}
+ * available"), never trusting the value shown at form-render time.
+ */
+export class InsufficientStockError extends AppError {
+  constructor(available: number, requested: number) {
+    super('INSUFFICIENT_STOCK', `Only ${available} units available.`, { available, requested });
+  }
+}
+
+/**
+ * BR-20 / ARB-02: the same `Idempotency-Key` arrived with a DIFFERENT payload
+ * than the committed Transaction it maps to (F6). A genuine replay (identical
+ * payload) never reaches here — it returns the original outcome. A concurrent
+ * same-key/same-payload race is also NOT this error (duplicate-key is absorbed
+ * as a replay inside MovementService); only a true payload mismatch is a 422.
+ */
+export class IdempotencyConflictError extends AppError {
+  constructor(message = 'Request conflict — please retry the operation.') {
+    super('IDEMPOTENCY_CONFLICT', message);
+  }
+}
+
 /** DB down / booting / draining — carries Retry-After (NFR-20, DEP §5). */
 export class ServiceUnavailableError extends AppError {
   readonly retryAfterSeconds: number;

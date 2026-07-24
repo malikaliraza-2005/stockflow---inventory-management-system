@@ -25,6 +25,7 @@
 import mongoose from 'mongoose';
 
 import { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES } from './AuditLog.js';
+import { ADJUSTMENT_REASONS, TRANSACTION_TYPES } from './Transaction.js';
 import { USER_ROLES } from './User.js';
 
 /** DBD §2.1 — `users`. */
@@ -174,10 +175,35 @@ const settingsValidator = {
   },
 };
 
-/** Collection name (Mongoose pluralization) → validator document.
- * `transactions` is intentionally ABSENT — its validator lands with F6 (the
- * idempotent movement path, first-consumer law); F4's INITIAL writes are
- * covered by the Mongoose schema layer meanwhile (documented seam). */
+/** DBD §2.4 — `transactions` (F6) ∎ append-only. Second layer behind the Mongoose
+ * schema; catches native/driver writes into the ledger. Like `auditlogs`, it
+ * REJECTS any document carrying `updatedAt` (DES-1, DBD §6.3) — a ledger row can
+ * never look edited. `quantityAfter ≥ 0` and the closed type/reason enums are
+ * defense-in-depth (BR-10); `quantityChange ≠ 0` (BR-12) and `quantity == Σ
+ * ledger` (DN-1) are service-enforced invariants, not expressible here.
+ * `idempotencyKey` carries `minLength: 1` so an empty string can never reach the
+ * sparse-unique index (PDV-04). */
+const transactionsValidator = {
+  $jsonSchema: {
+    bsonType: 'object',
+    required: ['productId', 'type', 'quantityChange', 'quantityAfter', 'userId', 'createdAt'],
+    not: { required: ['updatedAt'] }, // DES-1: append-only, never edited
+    properties: {
+      productId: { bsonType: 'objectId' },
+      type: { enum: [...TRANSACTION_TYPES] }, // closed set (PDV-01)
+      quantityChange: { bsonType: 'int' }, // signed; ≠ 0 is service-enforced (BR-12)
+      quantityAfter: { bsonType: 'int', minimum: 0 }, // DN-2 snapshot
+      userId: { bsonType: 'objectId' },
+      reason: { enum: [...ADJUSTMENT_REASONS] }, // required-iff-ADJUSTMENT is service-enforced
+      note: { bsonType: 'string', maxLength: 500 },
+      refTransactionId: { bsonType: 'objectId' },
+      idempotencyKey: { bsonType: 'string', minLength: 1 }, // PDV-04 (sparse unique)
+      createdAt: { bsonType: 'date' },
+    },
+  },
+};
+
+/** Collection name (Mongoose pluralization) → validator document. */
 export const JSON_VALIDATORS: Readonly<Record<string, object>> = {
   users: usersValidator,
   refreshtokens: refreshTokensValidator,
@@ -185,6 +211,7 @@ export const JSON_VALIDATORS: Readonly<Record<string, object>> = {
   products: productsValidator,
   counters: countersValidator,
   settings: settingsValidator,
+  transactions: transactionsValidator,
 };
 
 const NAMESPACE_NOT_FOUND = 26;
