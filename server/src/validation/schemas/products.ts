@@ -15,7 +15,15 @@
  */
 import { z } from 'zod';
 
-import { barcode, money, objectId, quantityInt, sku, sparseOptional } from '../primitives.js';
+import {
+  barcode,
+  cloudinaryPublicId,
+  money,
+  objectId,
+  quantityInt,
+  sku,
+  sparseOptional,
+} from '../primitives.js';
 
 export const productMessages = {
   name: 'Name: 2–120 characters',
@@ -25,7 +33,31 @@ export const productMessages = {
   nothingToUpdate: 'Provide at least one field to update',
   supplierName: 'Supplier name is too long (120 max)',
   search: 'Search is too long (120 max)',
+  imageUrl: 'Invalid image URL',
+  imagesMax: 'Up to 5 images',
+  onePrimary: 'Exactly one image must be primary',
 } as const;
+
+/**
+ * Images (F5) — publicId is folder-anchored (`ims/prod/…`, the security control,
+ * VAL Issue 4); the URL's host-pinning to the configured delivery host is
+ * enforced in ProductService (it needs the runtime host). DBR-03 exactly-one-
+ * primary is refined here (structural) and re-affirmed by the service.
+ */
+const productImage = z.object({
+  publicId: cloudinaryPublicId,
+  url: z.url(productMessages.imageUrl),
+  isPrimary: z.boolean(),
+});
+
+const images = z
+  .array(productImage)
+  .max(5, productMessages.imagesMax)
+  .refine((arr) => arr.length === 0 || arr.filter((img) => img.isPrimary).length === 1, {
+    message: productMessages.onePrimary,
+    path: ['images'],
+  })
+  .optional();
 
 const name = z
   .string(productMessages.name)
@@ -71,6 +103,7 @@ export const productCreateSchema = z.object({
   initialQuantity: quantityInt.default(0),
   lowStockThreshold: nonNegativeInt.optional(), // absent → copied from Settings (DN-3)
   supplier,
+  images, // F5 — ≤ 5, exactly one primary
 });
 
 /** PATCH /products/:id — §15.4 update. Carries `version` (BR-24); rejects sku
@@ -86,6 +119,7 @@ export const productUpdateSchema = z
     sellingPrice: money.optional(),
     lowStockThreshold: nonNegativeInt.optional(),
     supplier,
+    images, // F5 — replace the whole set; removed publicIds are destroyed post-commit
   })
   .refine(
     (body) => Object.entries(body).some(([key, value]) => key !== 'version' && value !== undefined),

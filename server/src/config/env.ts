@@ -43,6 +43,9 @@ const envSchema = z
     CLOUDINARY_CLOUD_NAME: z.string().min(1),
     CLOUDINARY_API_KEY: z.string().min(1),
     CLOUDINARY_API_SECRET: z.string().min(1),
+    // Delivery host pinned into image-URL validation (VAL Issue 4). Matches the
+    // helmet CSP img-src + the client CSP; default is Cloudinary's shared host.
+    CLOUDINARY_DELIVERY_HOST: z.string().min(1).default('res.cloudinary.com'),
 
     // Seed bootstrap (FR-USER-06; consumed by task 0.7's seed module)
     SEED_ADMIN_EMAIL: z.email(),

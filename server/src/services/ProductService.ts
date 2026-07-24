@@ -28,13 +28,15 @@ import {
   StaleWriteError,
   ValidationError,
 } from '../errors/AppError.js';
+import type { Logger } from '../lib/logger.js';
 import { escapeRegex, listEnvelope, type ListEnvelope } from '../lib/pagination.js';
 import { Category } from '../models/Category.js';
-import { Product, type ProductDoc } from '../models/Product.js';
+import { Product, type ProductDoc, type ProductImage } from '../models/Product.js';
 import { Settings } from '../models/Settings.js';
 import { Transaction } from '../models/Transaction.js';
 import { AuditService } from './AuditService.js';
 import type { MovementService } from './MovementService.js';
+import type { UploadService } from './UploadService.js';
 import type { RequestContext } from './AuthService.js';
 import type {
   ProductCreateInput,
@@ -60,17 +62,28 @@ export interface ProductServiceDeps {
   movement: MovementService;
   /** D-1: true only where the deployed tier has Atlas Search (staging/prod). */
   atlasSearch?: boolean;
+  /** F5: destroys replaced/removed/orphaned Cloudinary assets (BR-38). */
+  uploads?: UploadService;
+  /** F5: image URLs are pinned to this delivery host (VAL Issue 4). */
+  deliveryHost?: string;
+  logger?: Pick<Logger, 'warn'>;
 }
 
 export class ProductService {
   private readonly audit: AuditService;
   private readonly movement: MovementService;
   private readonly atlasSearch: boolean;
+  private readonly uploads: UploadService | undefined;
+  private readonly deliveryHost: string | undefined;
+  private readonly logger: Pick<Logger, 'warn'> | undefined;
 
   constructor(deps: ProductServiceDeps) {
     this.audit = deps.audit;
     this.movement = deps.movement;
     this.atlasSearch = deps.atlasSearch ?? false;
+    this.uploads = deps.uploads;
+    this.deliveryHost = deps.deliveryHost;
+    this.logger = deps.logger;
   }
 
   /** GET /products — filters/search/sort per 05 §7.3. `archived` is applied by
@@ -143,6 +156,7 @@ export class ProductService {
       throw new ValidationError([{ field: 'categoryId', message: 'Choose a valid category.' }]);
     }
 
+    this.assertImageHosts(input.images); // VAL Issue 4 — URL host pinning
     const lowStockThreshold = input.lowStockThreshold ?? (await this.defaultThreshold());
     const sku = input.sku ?? (await this.nextSku(category.name));
 
@@ -158,6 +172,7 @@ export class ProductService {
           sellingPrice: toDecimal(input.sellingPrice),
           lowStockThreshold,
           supplier: normalizeSupplier(input.supplier),
+          ...(input.images ? { images: input.images } : {}),
         },
         initialQuantity: input.initialQuantity,
         actorId,
@@ -165,6 +180,8 @@ export class ProductService {
       });
       return { product, categoryName: category.name };
     } catch (error) {
+      // FEV-01 / BR-38: a failed save must not strand just-uploaded assets.
+      await this.destroyImages(input.images);
       throw await this.mapDuplicateKey(error);
     }
   }
@@ -186,6 +203,7 @@ export class ProductService {
       if (!exists)
         throw new ValidationError([{ field: 'categoryId', message: 'Choose a valid category.' }]);
     }
+    this.assertImageHosts(input.images); // VAL Issue 4
 
     const set: Record<string, unknown> = {};
     if (input.name !== undefined) set.name = input.name;
@@ -197,6 +215,10 @@ export class ProductService {
     if (input.sellingPrice !== undefined) set.sellingPrice = toDecimal(input.sellingPrice);
     if (input.lowStockThreshold !== undefined) set.lowStockThreshold = input.lowStockThreshold;
     if (input.supplier !== undefined) set.supplier = normalizeSupplier(input.supplier);
+    if (input.images !== undefined) set.images = input.images;
+
+    // Snapshot the prior image set BEFORE the write, to destroy what's removed.
+    const priorImages = existing.images;
 
     let updated: HydratedDocument<ProductDoc> | null;
     try {
@@ -221,6 +243,13 @@ export class ProductService {
         changes,
         ip: ctx.ip,
       });
+    }
+
+    // BR-38 / APR-05: images removed or replaced by this PATCH are destroyed
+    // AFTER the DB write commits (post-commit side effect, never blocks the save).
+    if (input.images !== undefined) {
+      const keptIds = new Set(updated.images.map((img) => img.publicId));
+      await this.destroyImages(priorImages.filter((img) => !keptIds.has(img.publicId)));
     }
 
     const name = (await this.categoryNames([updated.categoryId])).get(
@@ -311,6 +340,7 @@ export class ProductService {
     ctx: RequestContext = {},
   ): Promise<void> {
     const session = await mongoose.startSession();
+    let removedImages: ProductImage[] = [];
     try {
       await session.withTransaction(
         async () => {
@@ -320,6 +350,7 @@ export class ProductService {
           const hasHistory = await Transaction.exists({ productId: product._id }).session(session);
           if (hasHistory) throw new ProductHasHistoryError();
 
+          removedImages = product.images;
           await product.deleteOne({ session });
           await this.audit.record(
             {
@@ -332,10 +363,12 @@ export class ProductService {
             },
             { session },
           );
-          // Cloudinary asset destroy (BR-38) is F5's pipeline (images are [] in F4).
         },
         { readConcern: { level: 'majority' }, writeConcern: { w: 'majority' } },
       );
+      // BR-38: destroy assets AFTER commit — never inside T4 (a Cloudinary hiccup
+      // must not roll back a committed delete).
+      await this.destroyImages(removedImages);
     } finally {
       await session.endSession();
     }
@@ -368,6 +401,36 @@ export class ProductService {
       }
     }
     throw new Error(`SKU counter contention for prefix ${prefix}`);
+  }
+
+  /** VAL Issue 4: every image URL's host must equal the configured Cloudinary
+   *  delivery host — a defense behind the folder-anchored publicId. Skipped only
+   *  if no host is configured (never the case in production). */
+  private assertImageHosts(images: ProductImage[] | undefined): void {
+    if (!images || !this.deliveryHost) return;
+    for (const img of images) {
+      let host: string;
+      try {
+        host = new URL(img.url).host;
+      } catch {
+        throw new ValidationError([{ field: 'images', message: 'Invalid image URL' }]);
+      }
+      if (host !== this.deliveryHost) {
+        throw new ValidationError([{ field: 'images', message: 'Invalid image URL' }]);
+      }
+    }
+  }
+
+  /** BR-38 best-effort asset cleanup — never throws (a Cloudinary failure is
+   *  logged and the orphan is left for F6's sweep, FEV-01). No-op without an
+   *  UploadService (unit tests that don't exercise images). */
+  private async destroyImages(images: ProductImage[] | undefined): Promise<void> {
+    if (!this.uploads || !images || images.length === 0) return;
+    try {
+      await this.uploads.destroyQuietly(images.map((img) => img.publicId));
+    } catch (error) {
+      this.logger?.warn({ err: error }, 'image cleanup failed — left for the F6 sweep (BR-38)');
+    }
   }
 
   private async defaultThreshold(): Promise<number> {

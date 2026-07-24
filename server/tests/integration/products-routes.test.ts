@@ -316,3 +316,43 @@ describe('PATCH /products/:id (BR-24) + lifecycle', () => {
     expect(unknown.status).toBe(404);
   });
 });
+
+describe('POST /products with images (F5 — DBR-03 / VAL Issue 4)', () => {
+  const image = (id: string, isPrimary: boolean) => ({
+    publicId: `ims/prod/${id}`,
+    url: `https://res.cloudinary.com/demo/${id}.jpg`,
+    isPrimary,
+  });
+
+  it('accepts ≤5 with exactly one primary (201); rejects two-primary and out-of-folder publicId (400)', async () => {
+    const app = makeApp();
+    await seedUser({ email: 'admin@example.com', role: 'ADMIN' });
+    const admin = await loginAs(app, 'admin@example.com');
+
+    const ok = await request(app)
+      .post('/api/v1/products')
+      .set('Authorization', admin)
+      .send(newProduct({ images: [image('a', true), image('b', false)] }));
+    expect(ok.status).toBe(201);
+    expect(ok.body.images).toHaveLength(2);
+
+    const twoPrimary = await request(app)
+      .post('/api/v1/products')
+      .set('Authorization', admin)
+      .send(newProduct({ sku: 'IMG-2', images: [image('a', true), image('b', true)] }));
+    expect(twoPrimary.status).toBe(400); // DBR-03
+
+    const outsideFolder = await request(app)
+      .post('/api/v1/products')
+      .set('Authorization', admin)
+      .send(
+        newProduct({
+          sku: 'IMG-3',
+          images: [
+            { publicId: 'evil/x', url: 'https://res.cloudinary.com/x.jpg', isPrimary: true },
+          ],
+        }),
+      );
+    expect(outsideFolder.status).toBe(400); // publicId anchor rejects traversal
+  });
+});

@@ -409,6 +409,46 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/upload/signature': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Sign a Cloudinary upload scoped to ims/prod (SEC-08, BR-36) — Admin
+     * @description Returns signed params; the browser uploads directly to Cloudinary — image bytes never transit this API. Type/size are validated before signing.
+     */
+    post: operations['createUploadSignature'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/upload/{publicId}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /**
+     * Destroy an uploaded asset (BR-38) — Admin
+     * @description The publicId contains `/` and MUST be percent-encoded. Folder-scoped (APR-03): a publicId outside the app's ims/prod folder is 403 and can never be destroyed here.
+     */
+    delete: operations['destroyUpload'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -548,6 +588,22 @@ export interface components {
       /** @description Products (active + archived) referencing this category; only on ?withCounts=true (§9.9). */
       productCount?: number;
     };
+    /** @description 05 §7.9 — declares the intended upload so the server can reject disallowed type/size before signing (BR-36). */
+    UploadSignatureRequest: {
+      /** @enum {string} */
+      contentType: 'image/jpeg' | 'image/png' | 'image/webp';
+      /** @description Bytes; ≤ 5 MB. */
+      size: number;
+    };
+    /** @description Signed params for a direct browser upload to Cloudinary. */
+    UploadSignatureResponse: {
+      signature: string;
+      timestamp: number;
+      apiKey: string;
+      cloudName: string;
+      /** @example ims/prod */
+      folder: string;
+    };
     /**
      * @description Derived from quantity vs lowStockThreshold (05 §2) — never stored.
      * @enum {string}
@@ -587,6 +643,8 @@ export interface components {
       /** @description Absent → copied from Settings.defaultLowStockThreshold (DN-3). */
       lowStockThreshold?: number;
       supplier?: components['schemas']['ProductSupplier'];
+      /** @description ≤ 5; exactly one primary when non-empty (DBR-03). publicIds must be from an F5 upload. */
+      images?: components['schemas']['ProductImage'][];
     };
     /** @description 05 §15.4 update. MUST carry `version` (BR-24). Excludes sku (immutable, BR-03), quantity (BR-17), isArchived (lifecycle routes). At least one updatable field beyond version. */
     ProductUpdateRequest: {
@@ -599,6 +657,8 @@ export interface components {
       sellingPrice?: components['schemas']['Money'];
       lowStockThreshold?: number;
       supplier?: components['schemas']['ProductSupplier'];
+      /** @description Replaces the whole set; removed publicIds are destroyed post-commit (BR-38). */
+      images?: components['schemas']['ProductImage'][];
     };
     /** @description Full product (GET /products/:id · POST 201 · PATCH 200). Money as 2-dp strings. */
     Product: {
@@ -1680,6 +1740,65 @@ export interface operations {
       400: components['responses']['ValidationError'];
       401: components['responses']['Unauthorized'];
       403: components['responses']['Forbidden'];
+    };
+  };
+  createUploadSignature: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['UploadSignatureRequest'];
+      };
+    };
+    responses: {
+      /** @description Signed upload parameters. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['UploadSignatureResponse'];
+        };
+      };
+      400: components['responses']['ValidationError'];
+      401: components['responses']['Unauthorized'];
+      403: components['responses']['Forbidden'];
+    };
+  };
+  destroyUpload: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Percent-encoded Cloudinary publicId (e.g. ims%2Fprod%2Fabc123). */
+        publicId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Destroyed. No body. */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components['responses']['Unauthorized'];
+      /** @description FORBIDDEN — the publicId is outside the app's upload folder (APR-03). */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope'];
+        };
+      };
+      404: components['responses']['NotFound'];
     };
   };
 }

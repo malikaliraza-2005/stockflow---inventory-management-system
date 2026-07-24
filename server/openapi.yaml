@@ -36,6 +36,8 @@ tags:
     description: Product catalog + materialized stock — 05 §7.3 (F4). Reads both-roles; catalog writes and lifecycle Admin. quantity is MovementService-only (BR-17); the invariant quantity == Σ ledger holds from creation via the INITIAL row.
   - name: settings
     description: System settings singleton — 05 §7.10 (F11). Admin-only; Staff reads the same display constants from the session payload (FCM-01). defaultLowStockThreshold is copied into products at creation (DN-3) — edits never rewrite existing products.
+  - name: uploads
+    description: Cloudinary signed uploads — 05 §7.9 (F5). Admin-only. The server signs an upload scoped to ims/prod; the browser uploads directly (SEC-08). Destroy is folder-scoped (APR-03). Images are attached via the product body, not here.
 
 paths:
   /health:
@@ -925,6 +927,64 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
 
+  /upload/signature:
+    post:
+      tags: [uploads]
+      operationId: createUploadSignature
+      summary: Sign a Cloudinary upload scoped to ims/prod (SEC-08, BR-36) — Admin
+      description: >-
+        Returns signed params; the browser uploads directly to Cloudinary — image
+        bytes never transit this API. Type/size are validated before signing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UploadSignatureRequest'
+      responses:
+        '200':
+          description: Signed upload parameters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadSignatureResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /upload/{publicId}:
+    delete:
+      tags: [uploads]
+      operationId: destroyUpload
+      summary: Destroy an uploaded asset (BR-38) — Admin
+      description: >-
+        The publicId contains `/` and MUST be percent-encoded. Folder-scoped
+        (APR-03): a publicId outside the app's ims/prod folder is 403 and can
+        never be destroyed here.
+      parameters:
+        - name: publicId
+          in: path
+          required: true
+          description: Percent-encoded Cloudinary publicId (e.g. ims%2Fprod%2Fabc123).
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Destroyed. No body.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: FORBIDDEN — the publicId is outside the app's upload folder (APR-03).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
 components:
   securitySchemes:
     cookieAuth:
@@ -1285,6 +1345,37 @@ components:
           minimum: 0
           description: Products (active + archived) referencing this category; only on ?withCounts=true (§9.9).
 
+    UploadSignatureRequest:
+      type: object
+      description: 05 §7.9 — declares the intended upload so the server can reject disallowed type/size before signing (BR-36).
+      required: [contentType, size]
+      properties:
+        contentType:
+          type: string
+          enum: [image/jpeg, image/png, image/webp]
+        size:
+          type: integer
+          minimum: 1
+          maximum: 5242880
+          description: Bytes; ≤ 5 MB.
+
+    UploadSignatureResponse:
+      type: object
+      description: Signed params for a direct browser upload to Cloudinary.
+      required: [signature, timestamp, apiKey, cloudName, folder]
+      properties:
+        signature:
+          type: string
+        timestamp:
+          type: integer
+        apiKey:
+          type: string
+        cloudName:
+          type: string
+        folder:
+          type: string
+          example: ims/prod
+
     StockStatus:
       type: string
       description: Derived from quantity vs lowStockThreshold (05 §2) — never stored.
@@ -1364,6 +1455,12 @@ components:
           description: Absent → copied from Settings.defaultLowStockThreshold (DN-3).
         supplier:
           $ref: '#/components/schemas/ProductSupplier'
+        images:
+          type: array
+          maxItems: 5
+          description: ≤ 5; exactly one primary when non-empty (DBR-03). publicIds must be from an F5 upload.
+          items:
+            $ref: '#/components/schemas/ProductImage'
 
     ProductUpdateRequest:
       type: object
@@ -1398,6 +1495,12 @@ components:
           minimum: 0
         supplier:
           $ref: '#/components/schemas/ProductSupplier'
+        images:
+          type: array
+          maxItems: 5
+          description: Replaces the whole set; removed publicIds are destroyed post-commit (BR-38).
+          items:
+            $ref: '#/components/schemas/ProductImage'
 
     Product:
       type: object
