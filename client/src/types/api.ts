@@ -385,6 +385,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/inventory/movements': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Record a stock movement (BR-11…20) — Any (STOCK_IN/OUT) · Admin (ADJUSTMENT)
+     * @description The load-bearing ledger endpoint (ARC §3.2). Executes Boundary T1 — conditional findOneAndUpdate (isArchived:false; quantity ≥ requested for negatives) + Transaction insert, one majority transaction (A-1), with bounded transient-conflict retry. The Idempotency-Key header is required (05 §4): a replay with the identical payload returns the original outcome (A-4), the same key with a different payload is 422 IDEMPOTENCY_CONFLICT. The ONE validate-before-authorize route (AAD §5.2) — a Staff-submitted ADJUSTMENT is 403.
+     */
+    post: operations['recordMovement'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/settings': {
     parameters: {
       query?: never;
@@ -760,6 +780,62 @@ export interface components {
     ReadyStatus: {
       /** @enum {string} */
       status: 'ready';
+    };
+    /** @description POST /inventory/movements body (§3.4), discriminated on `type`. STOCK_IN/STOCK_OUT carry `quantity`; ADJUSTMENT carries `delta` XOR `countedQuantity` plus a `reason` (note required for OTHER). INITIAL is server-only and rejected here. */
+    MovementRequest:
+      components['schemas']['StockInOutRequest'] | components['schemas']['AdjustmentRequest'];
+    StockInOutRequest: {
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      type: 'STOCK_IN' | 'STOCK_OUT';
+      productId: string;
+      /** @description Positive movement quantity (BR-12); direction derives from type. */
+      quantity: number;
+      note?: string;
+    };
+    /** @description Admin-only. Exactly one of delta / countedQuantity (BR-13). */
+    AdjustmentRequest: {
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      type: 'ADJUSTMENT';
+      productId: string;
+      /** @description Signed, ≠ 0. Mutually exclusive with countedQuantity. */
+      delta?: number;
+      /** @description Absolute counted stock; the server derives the delta. Mutually exclusive with delta. */
+      countedQuantity?: number;
+      /** @enum {string} */
+      reason: 'DAMAGED' | 'LOST' | 'FOUND' | 'COUNT_CORRECTION' | 'RETURN' | 'OTHER';
+      /** @description Required when reason is OTHER. */
+      note?: string;
+    };
+    MovementTransaction: {
+      id: string;
+      productId: string;
+      /** @enum {string} */
+      type: 'INITIAL' | 'STOCK_IN' | 'STOCK_OUT' | 'ADJUSTMENT';
+      /** @description Signed net change (BR-12). */
+      quantityChange: number;
+      quantityAfter: number;
+      userId: string;
+      /** @enum {string} */
+      reason?: 'DAMAGED' | 'LOST' | 'FOUND' | 'COUNT_CORRECTION' | 'RETURN' | 'OTHER';
+      note?: string;
+      /** Format: date-time */
+      createdAt: string;
+    };
+    /** @description The committed/replayed movement plus the resulting product state (05 §7.5). */
+    MovementResponse: {
+      transaction: components['schemas']['MovementTransaction'];
+      product: {
+        id: string;
+        quantity: number;
+        lowStockThreshold: number;
+        stockStatus: components['schemas']['StockStatus'];
+      };
     };
   };
   responses: {
@@ -1691,6 +1767,55 @@ export interface operations {
       401: components['responses']['Unauthorized'];
       403: components['responses']['Forbidden'];
       404: components['responses']['NotFound'];
+    };
+  };
+  recordMovement: {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description RFC-4122 UUID, any version (APR-07). Missing/malformed → 400. */
+        'Idempotency-Key': string;
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['MovementRequest'];
+      };
+    };
+    responses: {
+      /** @description The committed (or replayed) movement + resulting product state. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['MovementResponse'];
+        };
+      };
+      400: components['responses']['ValidationError'];
+      401: components['responses']['Unauthorized'];
+      403: components['responses']['Forbidden'];
+      404: components['responses']['NotFound'];
+      /** @description INSUFFICIENT_STOCK (details {available, requested}) or PRODUCT_ARCHIVED. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope'];
+        };
+      };
+      /** @description IDEMPOTENCY_CONFLICT — same key, different payload (BR-20). */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope'];
+        };
+      };
     };
   };
   getSettings: {
