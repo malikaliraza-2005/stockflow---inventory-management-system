@@ -101,11 +101,76 @@ const auditLogsValidator = {
   },
 };
 
-/** Collection name (Mongoose pluralization) → validator document. */
+/** DBD §2.3 — `products` (F4). Second layer behind the Mongoose schema; catches
+ * native/driver writes. The exactly-one-primary-image (DBR-03) and
+ * `quantity == Σ ledger` (DN-1) invariants are NOT expressible here — they are
+ * named service invariants (DBD §5). `barcode` carries `minLength: 1` so an
+ * empty string can never reach the sparse unique index (PDV-04). */
+const productsValidator = {
+  $jsonSchema: {
+    bsonType: 'object',
+    required: [
+      'name',
+      'sku',
+      'categoryId',
+      'costPrice',
+      'sellingPrice',
+      'quantity',
+      'lowStockThreshold',
+      'isArchived',
+      'version',
+    ],
+    properties: {
+      name: { bsonType: 'string', minLength: 2, maxLength: 120 },
+      sku: { bsonType: 'string', minLength: 3, maxLength: 32 },
+      barcode: { bsonType: 'string', minLength: 1, maxLength: 64 }, // PDV-04 (sparse unique)
+      description: { bsonType: 'string', maxLength: 2000 },
+      categoryId: { bsonType: 'objectId' },
+      costPrice: { bsonType: 'decimal', minimum: 0 }, // BR-08
+      sellingPrice: { bsonType: 'decimal', minimum: 0 },
+      quantity: { bsonType: 'int', minimum: 0 }, // BR-10 defense-in-depth
+      lowStockThreshold: { bsonType: 'int', minimum: 0 },
+      isArchived: { bsonType: 'bool' },
+      version: { bsonType: 'int', minimum: 0 }, // BR-24
+      images: {
+        bsonType: 'array',
+        maxItems: 5, // BR-37
+        items: {
+          bsonType: 'object',
+          required: ['publicId', 'url', 'isPrimary'],
+          properties: {
+            publicId: { bsonType: 'string', minLength: 1 },
+            url: { bsonType: 'string', minLength: 1 },
+            isPrimary: { bsonType: 'bool' },
+          },
+        },
+      },
+    },
+  },
+};
+
+/** DBD §2.8 — `counters` (F4). Prefix-keyed string `_id`; monotonic sequence. */
+const countersValidator = {
+  $jsonSchema: {
+    bsonType: 'object',
+    required: ['_id', 'seq'],
+    properties: {
+      _id: { bsonType: 'string', minLength: 1 },
+      seq: { bsonType: 'int', minimum: 0 },
+    },
+  },
+};
+
+/** Collection name (Mongoose pluralization) → validator document.
+ * `transactions` is intentionally ABSENT — its validator lands with F6 (the
+ * idempotent movement path, first-consumer law); F4's INITIAL writes are
+ * covered by the Mongoose schema layer meanwhile (documented seam). */
 export const JSON_VALIDATORS: Readonly<Record<string, object>> = {
   users: usersValidator,
   refreshtokens: refreshTokensValidator,
   auditlogs: auditLogsValidator,
+  products: productsValidator,
+  counters: countersValidator,
 };
 
 const NAMESPACE_NOT_FOUND = 26;

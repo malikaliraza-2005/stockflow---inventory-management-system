@@ -133,6 +133,61 @@ export class CategoryInUseError extends AppError {
   }
 }
 
+/** BR-01: SKU unique system-wide — unique-index-backed, race-safe (F4). */
+export class DuplicateSkuError extends AppError {
+  constructor(message = 'SKU already exists.') {
+    super('DUPLICATE_SKU', message);
+  }
+}
+
+/** BR-05: barcode unique — details carries the conflicting product (name+SKU) (F4). */
+export class DuplicateBarcodeError extends AppError {
+  constructor(conflict?: { name: string; sku: string }) {
+    super(
+      'DUPLICATE_BARCODE',
+      conflict
+        ? `Barcode already assigned to ${conflict.name} (${conflict.sku}).`
+        : 'Barcode already in use.',
+      conflict ? { conflict } : undefined,
+    );
+  }
+}
+
+/** BR-24: optimistic-concurrency mismatch — refresh and reapply (F4). */
+export class StaleWriteError extends AppError {
+  constructor(message = 'This item changed since you loaded it. Refresh and try again.') {
+    super('STALE_WRITE', message);
+  }
+}
+
+/** BR-22 / lifecycle: operation invalid because the product is already archived (F4). */
+export class ProductArchivedError extends AppError {
+  constructor(message = 'This product is archived.') {
+    super('PRODUCT_ARCHIVED', message);
+  }
+}
+
+/** BR-22: archiving requires quantity == 0 (APR-01 documented code, F4). */
+export class ProductNotEmptyError extends AppError {
+  constructor(message = 'Archive requires zero stock. Move stock out first.') {
+    super('PRODUCT_NOT_EMPTY', message);
+  }
+}
+
+/** BR-23: hard delete permitted only with zero ledger history (APR-01 code, F4). */
+export class ProductHasHistoryError extends AppError {
+  constructor(message = 'This product has stock history and can only be archived.') {
+    super('PRODUCT_HAS_HISTORY', message);
+  }
+}
+
+/** BR-16: scanner/lookup payload is not a usable code (malformed) (F4). */
+export class InvalidBarcodeError extends AppError {
+  constructor(message = "Code can't be read.") {
+    super('INVALID_BARCODE', message);
+  }
+}
+
 /** DB down / booting / draining — carries Retry-After (NFR-20, DEP §5). */
 export class ServiceUnavailableError extends AppError {
   readonly retryAfterSeconds: number;
