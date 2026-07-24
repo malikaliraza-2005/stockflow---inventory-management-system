@@ -54,6 +54,13 @@ export const router = createBrowserRouter([
                     }),
                   },
                   {
+                    // Categories — Any role views; writes gated in-page (FR-CAT-03)
+                    path: 'categories',
+                    lazy: async () => ({
+                      Component: (await import('./pages/Categories')).default,
+                    }),
+                  },
+                  {
                     // admin chunk — guard OUTSIDE lazy (SMP Issue 2: the chunk
                     // must not download before the role check)
                     element: <RequireRole role="ADMIN" />,
