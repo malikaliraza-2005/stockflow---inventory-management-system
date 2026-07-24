@@ -225,6 +225,54 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/categories': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** List categories (FR-CAT-03, §7.4) — Any */
+    get: operations['listCategories'];
+    put?: never;
+    /**
+     * Create a category (FR-CAT-01, BR-26) — Admin
+     * @description Name is unique case-insensitive via the collation index. A duplicate — including a concurrent-create race — maps to VALIDATION_ERROR, NOT a 409 (APR-08: no SRS §16.3 409 mandate exists for category names).
+     */
+    post: operations['createCategory'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/categories/{id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    /** Single category — Any */
+    get: operations['getCategory'];
+    put?: never;
+    post?: never;
+    /**
+     * Delete a category, optionally reassigning its products (FR-CAT-02, BR-27/28) — Admin
+     * @description Boundary T5 — assert/reassign references + delete + audit, one atomic transaction. Blocked while any product (active OR archived) references it and no reassignment target is supplied → 409 CATEGORY_IN_USE. The system category is undeletable → VALIDATION_ERROR.
+     */
+    delete: operations['deleteCategory'];
+    options?: never;
+    head?: never;
+    /**
+     * Update name/description (FR-CAT-01, BR-26) — Admin
+     * @description Replaces name + description (an omitted description unsets). The system category is unmodifiable (BR-28) — the attempt returns VALIDATION_ERROR.
+     */
+    patch: operations['updateCategory'];
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -347,6 +395,22 @@ export interface components {
       resetLink: string;
       /** Format: date-time */
       expiresAt: string;
+    };
+    /** @description 05 §15.3 — POST and PATCH share this shape. name 2–60, unique case-insensitive (BR-26); description optional, ≤ 300 (blank → absent). isSystem is server-set and never accepted here (BR-28). */
+    CategoryWriteRequest: {
+      name: string;
+      description?: string;
+    };
+    /** @description Category row (05 §7.4). productCount present only on ?withCounts=true. */
+    Category: {
+      id: string;
+      name: string;
+      /** @description Absent when unset (optional-sparse rule, 05 §2). */
+      description?: string;
+      /** @description true only for Uncategorized — undeletable and unmodifiable (BR-28). */
+      isSystem: boolean;
+      /** @description Products (active + archived) referencing this category; only on ?withCounts=true (§9.9). */
+      productCount?: number;
     };
     /** @description The 05 §7.1 session user block — never carries credential fields (SEC-02). */
     SessionUser: {
@@ -878,6 +942,158 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['ResetLinkResponse'];
+        };
+      };
+      400: components['responses']['ValidationError'];
+      401: components['responses']['Unauthorized'];
+      403: components['responses']['Forbidden'];
+      404: components['responses']['NotFound'];
+    };
+  };
+  listCategories: {
+    parameters: {
+      query?: {
+        /** @description 1-based page number (05 §5). */
+        page?: components['parameters']['page'];
+        /** @description Page size — hard cap 100; values above cap → VALIDATION_ERROR (NFR-10). */
+        limit?: components['parameters']['limit'];
+        /** @description When true, each row carries productCount (active + archived) — §9.9. */
+        withCounts?: boolean;
+        sort?: 'name' | 'createdAt';
+        order?: 'asc' | 'desc';
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description List envelope of category rows. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PaginationMeta'] & {
+            data: components['schemas']['Category'][];
+          };
+        };
+      };
+      400: components['responses']['ValidationError'];
+      401: components['responses']['Unauthorized'];
+      403: components['responses']['Forbidden'];
+    };
+  };
+  createCategory: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CategoryWriteRequest'];
+      };
+    };
+    responses: {
+      /** @description Created category. */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Category'];
+        };
+      };
+      400: components['responses']['ValidationError'];
+      401: components['responses']['Unauthorized'];
+      403: components['responses']['Forbidden'];
+    };
+  };
+  getCategory: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Category. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Category'];
+        };
+      };
+      401: components['responses']['Unauthorized'];
+      403: components['responses']['Forbidden'];
+      404: components['responses']['NotFound'];
+    };
+  };
+  deleteCategory: {
+    parameters: {
+      query?: {
+        /** @description Target category id for bulk reassignment before delete (default UI target: Uncategorized). Identical-to-self or non-existent → VALIDATION_ERROR. */
+        reassignTo?: string;
+      };
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Deleted (and reassigned, if requested). No body. */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      400: components['responses']['ValidationError'];
+      401: components['responses']['Unauthorized'];
+      403: components['responses']['Forbidden'];
+      404: components['responses']['NotFound'];
+      /** @description CATEGORY_IN_USE — products still reference it; reassign first (BR-27). */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope'];
+        };
+      };
+    };
+  };
+  updateCategory: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CategoryWriteRequest'];
+      };
+    };
+    responses: {
+      /** @description Updated category. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Category'];
         };
       };
       400: components['responses']['ValidationError'];
