@@ -34,6 +34,8 @@ tags:
     description: Category taxonomy — 05 §7.4 (F3). Reads both-roles; writes Admin. Flat, case-insensitive unique names (BR-26); the system category Uncategorized is undeletable (BR-28).
   - name: products
     description: Product catalog + materialized stock — 05 §7.3 (F4). Reads both-roles; catalog writes and lifecycle Admin. quantity is MovementService-only (BR-17); the invariant quantity == Σ ledger holds from creation via the INITIAL row.
+  - name: settings
+    description: System settings singleton — 05 §7.10 (F11). Admin-only; Staff reads the same display constants from the session payload (FCM-01). defaultLowStockThreshold is copied into products at creation (DN-3) — edits never rewrite existing products.
 
 paths:
   /health:
@@ -878,6 +880,51 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /settings:
+    get:
+      tags: [settings]
+      operationId: getSettings
+      summary: Read the settings singleton (BR-41) — Admin
+      description: Admin-only; Staff reads these constants from the session payload (FCM-01), never here.
+      responses:
+        '200':
+          description: The settings singleton.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Settings'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    put:
+      tags: [settings]
+      operationId: updateSettings
+      summary: Update the settings singleton (BR-41, audited) — Admin
+      description: >-
+        Full-object replace of the singleton, in place. defaultLowStockThreshold
+        changes apply to NEW products only (DN-3) — existing products keep their
+        copied value. Changes are audited (entityType SETTINGS).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SettingsUpdateRequest'
+      responses:
+        '200':
+          description: Updated settings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Settings'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
 components:
   securitySchemes:
     cookieAuth:
@@ -1482,6 +1529,42 @@ components:
           $ref: '#/components/schemas/StockStatus'
         isArchived:
           type: boolean
+
+    SettingsUpdateRequest:
+      type: object
+      description: 05 §15.8 — full-object PUT; all three fields required (VAL §3.5).
+      required: [currency, defaultLowStockThreshold, movementWarningThreshold]
+      properties:
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+          description: ISO 4217 code (3 uppercase letters).
+        defaultLowStockThreshold:
+          type: integer
+          minimum: 0
+          maximum: 10000000
+        movementWarningThreshold:
+          type: integer
+          minimum: 1
+          maximum: 100000
+
+    Settings:
+      type: object
+      description: The settings singleton (05 §7.10). Stored field names — `currency`, not the session `systemCurrency` alias.
+      required: [currency, defaultLowStockThreshold, movementWarningThreshold, updatedAt]
+      properties:
+        currency:
+          type: string
+        defaultLowStockThreshold:
+          type: integer
+          minimum: 0
+        movementWarningThreshold:
+          type: integer
+          minimum: 1
+        updatedAt:
+          type: string
+          format: date-time
 
     SessionUser:
       type: object
