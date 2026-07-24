@@ -18,6 +18,7 @@ export function makeTestEnv(overrides: Partial<AppEnv> = {}): AppEnv {
     RATE_LIMIT_GLOBAL_WINDOW_MS: 900_000,
     RATE_LIMIT_STRICT_MAX: 100_000,
     RATE_LIMIT_STRICT_WINDOW_MS: 900_000,
+    ATLAS_SEARCH_ENABLED: false, // suites exercise the regex fallback (no Atlas locally)
     ...overrides,
   };
 }

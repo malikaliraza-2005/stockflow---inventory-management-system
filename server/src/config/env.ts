@@ -54,6 +54,12 @@ const envSchema = z
     RATE_LIMIT_STRICT_MAX: z.coerce.number().int().positive().default(10),
     RATE_LIMIT_STRICT_WINDOW_MS: z.coerce.number().int().positive().default(900_000),
 
+    // Search (D-1 / R-6): Atlas Search on the deployed tier (staging/prod).
+    // Absent/false ⇒ the anchored-regex fallback (dev/CI, and any tier without it).
+    ATLAS_SEARCH_ENABLED: z
+      .preprocess((v) => (v === 'true' ? true : v === 'false' ? false : v), z.boolean())
+      .default(false),
+
     // Observability
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
     SENTRY_DSN: z.url().optional(),

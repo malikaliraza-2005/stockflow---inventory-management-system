@@ -273,6 +273,118 @@ export interface paths {
     patch: operations['updateCategory'];
     trace?: never;
   };
+  '/products': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * List products (FR-PROD-05, §7.3) — Any
+     * @description Row projections (no image arrays, NFR-05). `archived` is an Admin-only filter (APD-02) — a Staff request carrying it is 403; omitted ⇒ active only.
+     */
+    get: operations['listProducts'];
+    put?: never;
+    /**
+     * Create a product (FR-PROD-01, BR-01…10) — Admin
+     * @description Boundary T2 — insert product + (non-zero initial stock) an INITIAL ledger row, one atomic transaction, so quantity == Σ ledger from creation. Blank SKU auto-generates from the category prefix (BR-04).
+     */
+    post: operations['createProduct'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/products/lookup': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Look up a product by barcode then SKU (BR-06/07) — Any
+     * @description Barcode (primary) then SKU (fallback). An archived product is reported AS archived, never as not-found (BR-07). A malformed payload is 422 INVALID_BARCODE (BR-16), not a 400.
+     */
+    get: operations['lookupProduct'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/products/{id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    /** Single product — Any */
+    get: operations['getProduct'];
+    put?: never;
+    post?: never;
+    /**
+     * Hard delete a product with zero ledger history (BR-23) — Admin
+     * @description Boundary T4 — assert zero transactions + delete + audit, atomic. Any product with stock history (an INITIAL row or movements) can only be archived → 409 PRODUCT_HAS_HISTORY.
+     */
+    delete: operations['deleteProduct'];
+    options?: never;
+    head?: never;
+    /**
+     * Update catalog fields with optimistic concurrency (BR-24) — Admin
+     * @description Carries `version`; a mismatch is 409 STALE_WRITE. SKU is immutable (BR-03) and quantity is MovementService-only (BR-17) — neither is accepted here.
+     */
+    patch: operations['updateProduct'];
+    trace?: never;
+  };
+  '/products/{id}/archive': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Archive a product (requires zero stock, BR-22) — Admin
+     * @description Boundary T3 — the quantity == 0 predicate is checked inside the write (a concurrent movement aborts one op).
+     */
+    post: operations['archiveProduct'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/products/{id}/restore': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Restore an archived product (FR-PROD-04) — Admin */
+    post: operations['restoreProduct'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -411,6 +523,113 @@ export interface components {
       isSystem: boolean;
       /** @description Products (active + archived) referencing this category; only on ?withCounts=true (§9.9). */
       productCount?: number;
+    };
+    /**
+     * @description Derived from quantity vs lowStockThreshold (05 §2) — never stored.
+     * @enum {string}
+     */
+    StockStatus: 'IN_STOCK' | 'LOW_STOCK' | 'OUT_OF_STOCK';
+    /**
+     * @description Decimal amount as a 2-dp string (DBR-05) — never a float on the wire.
+     * @example 12.50
+     */
+    Money: string;
+    /** @description Embedded supplier value object (DBD §2.3). */
+    ProductSupplier: {
+      name: string;
+      contactName?: string;
+      phone?: string;
+      email?: string;
+    };
+    /** @description Cloudinary image reference (DBR-03 — exactly one primary when non-empty). Managed by F5's pipeline. */
+    ProductImage: {
+      publicId: string;
+      /** Format: uri */
+      url: string;
+      isPrimary: boolean;
+    };
+    /** @description 05 §15.4 create. SKU optional (blank → auto BR-04). quantity is not accepted — `initialQuantity` seeds the ledger (BR-17). Money as strings. */
+    ProductCreateRequest: {
+      name: string;
+      /** @description Optional; normalized to uppercase. Blank/omitted → auto-generated. */
+      sku?: string;
+      barcode?: string;
+      categoryId: string;
+      description?: string;
+      costPrice: components['schemas']['Money'];
+      sellingPrice: components['schemas']['Money'];
+      /** @default 0 */
+      initialQuantity: number;
+      /** @description Absent → copied from Settings.defaultLowStockThreshold (DN-3). */
+      lowStockThreshold?: number;
+      supplier?: components['schemas']['ProductSupplier'];
+    };
+    /** @description 05 §15.4 update. MUST carry `version` (BR-24). Excludes sku (immutable, BR-03), quantity (BR-17), isArchived (lifecycle routes). At least one updatable field beyond version. */
+    ProductUpdateRequest: {
+      version: number;
+      name?: string;
+      barcode?: string;
+      categoryId?: string;
+      description?: string;
+      costPrice?: components['schemas']['Money'];
+      sellingPrice?: components['schemas']['Money'];
+      lowStockThreshold?: number;
+      supplier?: components['schemas']['ProductSupplier'];
+    };
+    /** @description Full product (GET /products/:id · POST 201 · PATCH 200). Money as 2-dp strings. */
+    Product: {
+      id: string;
+      name: string;
+      sku: string;
+      barcode?: string;
+      description?: string;
+      categoryId: string;
+      /** @description Resolved category name (present when the server joined it). */
+      categoryName?: string;
+      quantity: number;
+      lowStockThreshold: number;
+      costPrice: components['schemas']['Money'];
+      sellingPrice: components['schemas']['Money'];
+      stockStatus: components['schemas']['StockStatus'];
+      supplier?: components['schemas']['ProductSupplier'];
+      images: components['schemas']['ProductImage'][];
+      isArchived: boolean;
+      version: number;
+      /** Format: date-time */
+      createdAt: string;
+      /** Format: date-time */
+      updatedAt: string;
+    };
+    /** @description List row projection (GET /products) — no image array / no version (NFR-05). */
+    ProductRow: {
+      id: string;
+      name: string;
+      sku: string;
+      barcode?: string;
+      /**
+       * Format: uri
+       * @description Primary image URL, when present.
+       */
+      thumbnailUrl?: string;
+      categoryName?: string;
+      quantity: number;
+      lowStockThreshold: number;
+      stockStatus: components['schemas']['StockStatus'];
+      costPrice: components['schemas']['Money'];
+      sellingPrice: components['schemas']['Money'];
+      isArchived: boolean;
+    };
+    /** @description Scanner-facing lookup result (GET /products/lookup, BR-06/07). */
+    ProductLookup: {
+      id: string;
+      name: string;
+      sku: string;
+      barcode?: string;
+      /** Format: uri */
+      primaryImageUrl?: string;
+      quantity: number;
+      stockStatus: components['schemas']['StockStatus'];
+      isArchived: boolean;
     };
     /** @description The 05 §7.1 session user block — never carries credential fields (SEC-02). */
     SessionUser: {
@@ -1097,6 +1316,279 @@ export interface operations {
         };
       };
       400: components['responses']['ValidationError'];
+      401: components['responses']['Unauthorized'];
+      403: components['responses']['Forbidden'];
+      404: components['responses']['NotFound'];
+    };
+  };
+  listProducts: {
+    parameters: {
+      query?: {
+        /** @description 1-based page number (05 §5). */
+        page?: components['parameters']['page'];
+        /** @description Page size — hard cap 100; values above cap → VALIDATION_ERROR (NFR-10). */
+        limit?: components['parameters']['limit'];
+        /** @description Name / SKU / barcode partial match, ≤ 120 chars. */
+        search?: string;
+        categoryId?: string;
+        stockStatus?: 'in' | 'low' | 'out';
+        /** @description Admin-only — filter by archival state. Staff supplying it → 403. */
+        archived?: boolean;
+        sort?: 'name' | 'sku' | 'quantity' | 'createdAt' | 'costPrice';
+        /** @description Sort direction companion to sort (APD-01). Default desc. */
+        order?: components['parameters']['order'];
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description List envelope of product row projections. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PaginationMeta'] & {
+            data: components['schemas']['ProductRow'][];
+          };
+        };
+      };
+      400: components['responses']['ValidationError'];
+      401: components['responses']['Unauthorized'];
+      403: components['responses']['Forbidden'];
+    };
+  };
+  createProduct: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ProductCreateRequest'];
+      };
+    };
+    responses: {
+      /** @description Created product. */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Product'];
+        };
+      };
+      400: components['responses']['ValidationError'];
+      401: components['responses']['Unauthorized'];
+      403: components['responses']['Forbidden'];
+      /** @description DUPLICATE_SKU or DUPLICATE_BARCODE — unique-index-backed, race-safe (BR-01/05). */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope'];
+        };
+      };
+    };
+  };
+  lookupProduct: {
+    parameters: {
+      query: {
+        /** @description Scanned/typed code — printable, ≤ 64 chars (BR-16). */
+        code: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The matched product (scanner-facing shape). */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProductLookup'];
+        };
+      };
+      400: components['responses']['ValidationError'];
+      401: components['responses']['Unauthorized'];
+      404: components['responses']['NotFound'];
+      /** @description INVALID_BARCODE — the payload is not a usable code (BR-16). */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope'];
+        };
+      };
+    };
+  };
+  getProduct: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Full product. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Product'];
+        };
+      };
+      401: components['responses']['Unauthorized'];
+      404: components['responses']['NotFound'];
+    };
+  };
+  deleteProduct: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Deleted. No body. */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components['responses']['Unauthorized'];
+      403: components['responses']['Forbidden'];
+      404: components['responses']['NotFound'];
+      /** @description PRODUCT_HAS_HISTORY — the product has ledger rows; archive instead (BR-23). */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope'];
+        };
+      };
+    };
+  };
+  updateProduct: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ProductUpdateRequest'];
+      };
+    };
+    responses: {
+      /** @description Updated product (version incremented). */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Product'];
+        };
+      };
+      400: components['responses']['ValidationError'];
+      401: components['responses']['Unauthorized'];
+      403: components['responses']['Forbidden'];
+      404: components['responses']['NotFound'];
+      /** @description STALE_WRITE (version mismatch) or DUPLICATE_BARCODE. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope'];
+        };
+      };
+    };
+  };
+  archiveProduct: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Archived product. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Product'];
+        };
+      };
+      401: components['responses']['Unauthorized'];
+      403: components['responses']['Forbidden'];
+      404: components['responses']['NotFound'];
+      /** @description PRODUCT_NOT_EMPTY (quantity ≠ 0) or PRODUCT_ARCHIVED (already archived). */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope'];
+        };
+      };
+    };
+  };
+  restoreProduct: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Restored product. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Product'];
+        };
+      };
+      /** @description The product is not archived (VALIDATION_ERROR). */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope'];
+        };
+      };
       401: components['responses']['Unauthorized'];
       403: components['responses']['Forbidden'];
       404: components['responses']['NotFound'];

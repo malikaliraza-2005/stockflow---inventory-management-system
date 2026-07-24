@@ -21,6 +21,7 @@ import helmet from 'helmet';
 
 import { createAuthController } from './controllers/authController.js';
 import { createCategoriesController } from './controllers/categoriesController.js';
+import { createProductsController } from './controllers/productsController.js';
 import { createUsersController } from './controllers/usersController.js';
 import { NotFoundError, ServiceUnavailableError } from './errors/AppError.js';
 import type { Logger } from './lib/logger.js';
@@ -32,10 +33,13 @@ import { createGlobalLimiter, createStrictLimiter } from './middleware/rateLimit
 import { requestId } from './middleware/requestId.js';
 import { createAuthRouter } from './routes/auth.js';
 import { createCategoriesRouter } from './routes/categories.js';
+import { createProductsRouter } from './routes/products.js';
 import { createUsersRouter } from './routes/users.js';
 import { AuditService } from './services/AuditService.js';
 import { AuthService } from './services/AuthService.js';
 import { CategoryService } from './services/CategoryService.js';
+import { MovementService } from './services/MovementService.js';
+import { ProductService } from './services/ProductService.js';
 import { UserService } from './services/UserService.js';
 
 /** The env slice the pipeline consumes — server.ts passes the validated Env. */
@@ -49,6 +53,8 @@ export interface AppEnv {
   RATE_LIMIT_GLOBAL_WINDOW_MS: number;
   RATE_LIMIT_STRICT_MAX: number;
   RATE_LIMIT_STRICT_WINDOW_MS: number;
+  /** D-1: Atlas Search available on the deployed tier (else regex fallback). */
+  ATLAS_SEARCH_ENABLED: boolean;
 }
 
 export interface AppDeps {
@@ -148,6 +154,12 @@ export function createApp(deps: AppDeps): Express {
     clientOrigin: env.CORS_ORIGIN, // reset links point at the frontend (AS-6)
   });
   const categoryService = new CategoryService({ audit });
+  const movementService = new MovementService({ audit });
+  const productService = new ProductService({
+    audit,
+    movement: movementService,
+    atlasSearch: env.ATLAS_SEARCH_ENABLED,
+  });
 
   app.use(
     '/api/v1/auth',
@@ -177,6 +189,15 @@ export function createApp(deps: AppDeps): Express {
     '/api/v1/categories',
     createCategoriesRouter({
       controller: createCategoriesController(categoryService),
+      authenticate: authenticateMw,
+      authorize,
+    }),
+  );
+
+  app.use(
+    '/api/v1/products',
+    createProductsRouter({
+      controller: createProductsController(productService),
       authenticate: authenticateMw,
       authorize,
     }),

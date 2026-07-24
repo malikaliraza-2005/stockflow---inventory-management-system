@@ -150,8 +150,8 @@ describe('GET /categories (withCounts §9.9)', () => {
     const admin = await loginAs(app, 'admin@example.com');
     const cat = await Category.create({ name: 'Counted' });
     await products().insertMany([
-      { categoryId: cat._id, isArchived: false },
-      { categoryId: cat._id, isArchived: true },
+      { categoryId: cat._id, isArchived: false, sku: 'CNT-1' }, // unique sku: the
+      { categoryId: cat._id, isArchived: true, sku: 'CNT-2' }, // {sku} unique index is real now (F4)
     ]);
 
     const res = await request(app)
@@ -237,8 +237,8 @@ describe('DELETE /categories/:id (BR-27 T5 / BR-28)', () => {
     const source = await Category.create({ name: 'Source' });
     const target = await Category.create({ name: 'Uncategorized', isSystem: true });
     await products().insertMany([
-      { categoryId: source._id, isArchived: false },
-      { categoryId: source._id, isArchived: true },
+      { categoryId: source._id, isArchived: false, sku: 'RS-1' },
+      { categoryId: source._id, isArchived: true, sku: 'RS-2' },
     ]);
 
     const res = await request(app)
