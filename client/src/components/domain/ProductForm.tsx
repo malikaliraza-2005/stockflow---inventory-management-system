@@ -27,6 +27,7 @@ import { Button } from '../ui/Button';
 import { FormField, fieldAria } from '../ui/FormField';
 import { Input } from '../ui/Input';
 import { SubmitRow } from '../ui/SubmitRow';
+import { ImageUploader, type FormImage } from './ImageUploader';
 
 export interface ProductFormProps {
   mode: 'create' | 'edit';
@@ -65,6 +66,7 @@ export function ProductForm({
   const [supplierContact, setSupplierContact] = useState(product?.supplier?.contactName ?? '');
   const [supplierPhone, setSupplierPhone] = useState(product?.supplier?.phone ?? '');
   const [supplierEmail, setSupplierEmail] = useState(product?.supplier?.email ?? '');
+  const [images, setImages] = useState<FormImage[]>(product?.images ?? []);
 
   const [errors, setErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | undefined>();
@@ -126,6 +128,7 @@ export function ProductForm({
           sellingPrice,
           lowStockThreshold: lowStockThreshold || undefined,
           supplier: supplierPayload(),
+          images, // always send the current set — removed ones are destroyed (BR-38)
         }
       : {
           name,
@@ -138,6 +141,7 @@ export function ProductForm({
           initialQuantity,
           lowStockThreshold: lowStockThreshold || undefined,
           supplier: supplierPayload(),
+          ...(images.length ? { images } : {}),
         };
 
     const schema = isEdit ? productUpdateSchema : productCreateSchema;
@@ -322,6 +326,12 @@ export function ProductForm({
             {...fieldAria('p-sup-email')}
           />
         </FormField>
+      </fieldset>
+
+      <fieldset className="space-y-2">
+        <legend className="text-sm font-semibold text-gray-800">Images</legend>
+        {errors.images && <p className="text-xs text-danger-600">{errors.images}</p>}
+        <ImageUploader value={images} onChange={setImages} />
       </fieldset>
 
       <SubmitRow
