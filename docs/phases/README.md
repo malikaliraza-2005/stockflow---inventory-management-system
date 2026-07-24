@@ -50,10 +50,10 @@ P0 Foundations ──▶ P1 Auth & Users ──▶ P2 Catalog ──▶ P3 Inven
 - [ ] F1/F2 completion checklists (IMP §4) signed
 
 ### P2 — Catalog → `m2-catalog-complete`
-- [ ] All F3/F4/F5/F11 binding rows green; lifecycle races green
-- [ ] Every product reconciles (`quantity == Σ ledger` via `recordInitial`)
-- [ ] Catalog plans COLLSCAN-free
-- [ ] F3/F4/F5/F11 checklists signed
+- [x] All F3/F4/F5/F11 binding rows green; lifecycle races green
+- [~] Every product reconciles (`quantity == Σ ledger` via `recordInitial`) — local + ephemeral replica set green; staging reconcile pending 0.12
+- [~] Catalog plans COLLSCAN-free — indexes per DBD §2.3; staging spot-check pending 0.12
+- [x] F3/F4/F5/F11 checklists signed (docs/evidence/phase-2/completion-checklist.md)
 
 ### P3 — Inventory Core ⚠ → `m3-the-ledger` (hard gate)
 - [ ] Invariant holds under the concurrency suite; replay semantics verified
