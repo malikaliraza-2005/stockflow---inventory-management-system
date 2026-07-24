@@ -161,6 +161,19 @@ const countersValidator = {
   },
 };
 
+/** DBD §2.7 — `settings` (F11). Seeded singleton (BR-41). */
+const settingsValidator = {
+  $jsonSchema: {
+    bsonType: 'object',
+    required: ['currency', 'defaultLowStockThreshold', 'movementWarningThreshold'],
+    properties: {
+      currency: { bsonType: 'string', minLength: 3, maxLength: 3 }, // ISO 4217
+      defaultLowStockThreshold: { bsonType: 'int', minimum: 0 },
+      movementWarningThreshold: { bsonType: 'int', minimum: 1 },
+    },
+  },
+};
+
 /** Collection name (Mongoose pluralization) → validator document.
  * `transactions` is intentionally ABSENT — its validator lands with F6 (the
  * idempotent movement path, first-consumer law); F4's INITIAL writes are
@@ -171,6 +184,7 @@ export const JSON_VALIDATORS: Readonly<Record<string, object>> = {
   auditlogs: auditLogsValidator,
   products: productsValidator,
   counters: countersValidator,
+  settings: settingsValidator,
 };
 
 const NAMESPACE_NOT_FOUND = 26;
