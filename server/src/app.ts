@@ -20,6 +20,7 @@ import mongoSanitize from 'express-mongo-sanitize';
 import helmet from 'helmet';
 
 import { createAuthController } from './controllers/authController.js';
+import { createCategoriesController } from './controllers/categoriesController.js';
 import { createUsersController } from './controllers/usersController.js';
 import { NotFoundError, ServiceUnavailableError } from './errors/AppError.js';
 import type { Logger } from './lib/logger.js';
@@ -30,9 +31,11 @@ import { httpLogger } from './middleware/httpLogger.js';
 import { createGlobalLimiter, createStrictLimiter } from './middleware/rateLimiters.js';
 import { requestId } from './middleware/requestId.js';
 import { createAuthRouter } from './routes/auth.js';
+import { createCategoriesRouter } from './routes/categories.js';
 import { createUsersRouter } from './routes/users.js';
 import { AuditService } from './services/AuditService.js';
 import { AuthService } from './services/AuthService.js';
+import { CategoryService } from './services/CategoryService.js';
 import { UserService } from './services/UserService.js';
 
 /** The env slice the pipeline consumes — server.ts passes the validated Env. */
@@ -144,6 +147,7 @@ export function createApp(deps: AppDeps): Express {
     authService,
     clientOrigin: env.CORS_ORIGIN, // reset links point at the frontend (AS-6)
   });
+  const categoryService = new CategoryService({ audit });
 
   app.use(
     '/api/v1/auth',
@@ -164,6 +168,15 @@ export function createApp(deps: AppDeps): Express {
     '/api/v1/users',
     createUsersRouter({
       controller: createUsersController(userService),
+      authenticate: authenticateMw,
+      authorize,
+    }),
+  );
+
+  app.use(
+    '/api/v1/categories',
+    createCategoriesRouter({
+      controller: createCategoriesController(categoryService),
       authenticate: authenticateMw,
       authorize,
     }),

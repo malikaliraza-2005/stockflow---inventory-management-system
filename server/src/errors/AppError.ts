@@ -122,6 +122,17 @@ export class LastAdminError extends AppError {
   }
 }
 
+/**
+ * BR-27: category deletion blocked while any product — active or archived —
+ * references it, and no reassignment target was supplied (F3). The T5 reference
+ * check and delete are atomic against concurrent product assignment.
+ */
+export class CategoryInUseError extends AppError {
+  constructor(message = 'Category has products — reassign them first.') {
+    super('CATEGORY_IN_USE', message);
+  }
+}
+
 /** DB down / booting / draining — carries Retry-After (NFR-20, DEP §5). */
 export class ServiceUnavailableError extends AppError {
   readonly retryAfterSeconds: number;

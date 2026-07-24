@@ -30,6 +30,8 @@ tags:
     description: Authentication & sessions — 05 §7.1 (F1). Refresh token travels only as an httpOnly cookie scoped to /api/v1/auth.
   - name: users
     description: User management — 05 §7.2 (F2). Admin-only except /users/me. No delete path exists (BR-29).
+  - name: categories
+    description: Category taxonomy — 05 §7.4 (F3). Reads both-roles; writes Admin. Flat, case-insensitive unique names (BR-26); the system category Uncategorized is undeletable (BR-28).
 
 paths:
   /health:
@@ -426,6 +428,172 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /categories:
+    get:
+      tags: [categories]
+      operationId: listCategories
+      summary: List categories (FR-CAT-03, §7.4) — Any
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - name: withCounts
+          in: query
+          description: When true, each row carries productCount (active + archived) — §9.9.
+          schema:
+            type: boolean
+            default: false
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [name, createdAt]
+            default: name
+        - name: order
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: asc
+      responses:
+        '200':
+          description: List envelope of category rows.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginationMeta'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Category'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [categories]
+      operationId: createCategory
+      summary: Create a category (FR-CAT-01, BR-26) — Admin
+      description: >-
+        Name is unique case-insensitive via the collation index. A duplicate —
+        including a concurrent-create race — maps to VALIDATION_ERROR, NOT a 409
+        (APR-08: no SRS §16.3 409 mandate exists for category names).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryWriteRequest'
+      responses:
+        '201':
+          description: Created category.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /categories/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^[0-9a-fA-F]{24}$'
+    get:
+      tags: [categories]
+      operationId: getCategory
+      summary: Single category — Any
+      responses:
+        '200':
+          description: Category.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [categories]
+      operationId: updateCategory
+      summary: Update name/description (FR-CAT-01, BR-26) — Admin
+      description: >-
+        Replaces name + description (an omitted description unsets). The system
+        category is unmodifiable (BR-28) — the attempt returns VALIDATION_ERROR.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryWriteRequest'
+      responses:
+        '200':
+          description: Updated category.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [categories]
+      operationId: deleteCategory
+      summary: Delete a category, optionally reassigning its products (FR-CAT-02, BR-27/28) — Admin
+      description: >-
+        Boundary T5 — assert/reassign references + delete + audit, one atomic
+        transaction. Blocked while any product (active OR archived) references
+        it and no reassignment target is supplied → 409 CATEGORY_IN_USE. The
+        system category is undeletable → VALIDATION_ERROR.
+      parameters:
+        - name: reassignTo
+          in: query
+          required: false
+          description: >-
+            Target category id for bulk reassignment before delete (default UI
+            target: Uncategorized). Identical-to-self or non-existent →
+            VALIDATION_ERROR.
+          schema:
+            type: string
+            pattern: '^[0-9a-fA-F]{24}$'
+      responses:
+        '204':
+          description: Deleted (and reassigned, if requested). No body.
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: CATEGORY_IN_USE — products still reference it; reassign first (BR-27).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
 components:
   securitySchemes:
     cookieAuth:
@@ -749,6 +917,42 @@ components:
         expiresAt:
           type: string
           format: date-time
+
+    CategoryWriteRequest:
+      type: object
+      description: >-
+        05 §15.3 — POST and PATCH share this shape. name 2–60, unique
+        case-insensitive (BR-26); description optional, ≤ 300 (blank → absent).
+        isSystem is server-set and never accepted here (BR-28).
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 60
+        description:
+          type: string
+          maxLength: 300
+
+    Category:
+      type: object
+      description: Category row (05 §7.4). productCount present only on ?withCounts=true.
+      required: [id, name, isSystem]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+          description: Absent when unset (optional-sparse rule, 05 §2).
+        isSystem:
+          type: boolean
+          description: true only for Uncategorized — undeletable and unmodifiable (BR-28).
+        productCount:
+          type: integer
+          minimum: 0
+          description: Products (active + archived) referencing this category; only on ?withCounts=true (§9.9).
 
     SessionUser:
       type: object
