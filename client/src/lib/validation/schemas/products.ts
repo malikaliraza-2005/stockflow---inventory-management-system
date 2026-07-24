@@ -9,7 +9,7 @@
  */
 import { z } from 'zod';
 
-import { barcode, money, objectId, sku, sparseOptional } from '../primitives';
+import { barcode, cloudinaryPublicId, money, objectId, sku, sparseOptional } from '../primitives';
 
 export const productMessages = {
   name: 'Name: 2–120 characters',
@@ -18,7 +18,23 @@ export const productMessages = {
   quantity: 'Enter a whole number ≥ 0',
   version: 'Missing version — reload and try again',
   supplierName: 'Supplier name is too long (120 max)',
+  onePrimary: 'Exactly one image must be primary',
 } as const;
+
+/** Images (F5) — publicId folder-anchored; DBR-03 exactly-one-primary. */
+const productImage = z.object({
+  publicId: cloudinaryPublicId,
+  url: z.url(),
+  isPrimary: z.boolean(),
+});
+const images = z
+  .array(productImage)
+  .max(5)
+  .refine((arr) => arr.length === 0 || arr.filter((i) => i.isPrimary).length === 1, {
+    message: productMessages.onePrimary,
+    path: ['images'],
+  })
+  .optional();
 
 const name = z
   .string(productMessages.name)
@@ -59,6 +75,7 @@ export const productCreateSchema = z.object({
   initialQuantity: nonNegInt(productMessages.quantity).default(0),
   lowStockThreshold: nonNegInt(productMessages.threshold).optional(),
   supplier,
+  images,
 });
 
 /** PATCH /products/:id — ProductForm edit. Carries `version`; no SKU/quantity. */
@@ -72,6 +89,7 @@ export const productUpdateSchema = z.object({
   sellingPrice: money,
   lowStockThreshold: nonNegInt(productMessages.threshold).optional(),
   supplier,
+  images,
 });
 
 export type ProductCreateInput = z.infer<typeof productCreateSchema>;
