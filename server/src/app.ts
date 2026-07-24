@@ -23,12 +23,14 @@ import { createAuthController } from './controllers/authController.js';
 import { createCategoriesController } from './controllers/categoriesController.js';
 import { createProductsController } from './controllers/productsController.js';
 import { createSettingsController } from './controllers/settingsController.js';
+import { createUploadController } from './controllers/uploadController.js';
 import { createUsersController } from './controllers/usersController.js';
 import { NotFoundError, ServiceUnavailableError } from './errors/AppError.js';
 import type { Logger } from './lib/logger.js';
 import { authenticate } from './middleware/authenticate.js';
 import { createAuthorize } from './middleware/authorize.js';
 import { createErrorHandler } from './middleware/errorHandler.js';
+import { createCloudinary } from './lib/cloudinary.js';
 import { httpLogger } from './middleware/httpLogger.js';
 import { createGlobalLimiter, createStrictLimiter } from './middleware/rateLimiters.js';
 import { requestId } from './middleware/requestId.js';
@@ -36,6 +38,7 @@ import { createAuthRouter } from './routes/auth.js';
 import { createCategoriesRouter } from './routes/categories.js';
 import { createProductsRouter } from './routes/products.js';
 import { createSettingsRouter } from './routes/settings.js';
+import { createUploadRouter } from './routes/upload.js';
 import { createUsersRouter } from './routes/users.js';
 import { AuditService } from './services/AuditService.js';
 import { AuthService } from './services/AuthService.js';
@@ -43,6 +46,7 @@ import { CategoryService } from './services/CategoryService.js';
 import { MovementService } from './services/MovementService.js';
 import { ProductService } from './services/ProductService.js';
 import { SettingsService } from './services/SettingsService.js';
+import { UploadService } from './services/UploadService.js';
 import { UserService } from './services/UserService.js';
 
 /** The env slice the pipeline consumes — server.ts passes the validated Env. */
@@ -58,6 +62,11 @@ export interface AppEnv {
   RATE_LIMIT_STRICT_WINDOW_MS: number;
   /** D-1: Atlas Search available on the deployed tier (else regex fallback). */
   ATLAS_SEARCH_ENABLED: boolean;
+  /** Cloudinary signed uploads (SEC-08) + delivery-host pinning (VAL Issue 4). */
+  CLOUDINARY_CLOUD_NAME: string;
+  CLOUDINARY_API_KEY: string;
+  CLOUDINARY_API_SECRET: string;
+  CLOUDINARY_DELIVERY_HOST: string;
 }
 
 export interface AppDeps {
@@ -158,10 +167,20 @@ export function createApp(deps: AppDeps): Express {
   });
   const categoryService = new CategoryService({ audit });
   const movementService = new MovementService({ audit });
+  const uploadService = new UploadService({
+    cloudinary: createCloudinary({
+      cloudName: env.CLOUDINARY_CLOUD_NAME,
+      apiKey: env.CLOUDINARY_API_KEY,
+      apiSecret: env.CLOUDINARY_API_SECRET,
+    }),
+  });
   const productService = new ProductService({
     audit,
     movement: movementService,
     atlasSearch: env.ATLAS_SEARCH_ENABLED,
+    uploads: uploadService,
+    deliveryHost: env.CLOUDINARY_DELIVERY_HOST,
+    logger,
   });
   const settingsService = new SettingsService({ audit });
 
@@ -211,6 +230,15 @@ export function createApp(deps: AppDeps): Express {
     '/api/v1/settings',
     createSettingsRouter({
       controller: createSettingsController(settingsService),
+      authenticate: authenticateMw,
+      authorize,
+    }),
+  );
+
+  app.use(
+    '/api/v1/upload',
+    createUploadRouter({
+      controller: createUploadController(uploadService),
       authenticate: authenticateMw,
       authorize,
     }),

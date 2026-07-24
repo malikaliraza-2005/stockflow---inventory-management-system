@@ -19,6 +19,10 @@ export function makeTestEnv(overrides: Partial<AppEnv> = {}): AppEnv {
     RATE_LIMIT_STRICT_MAX: 100_000,
     RATE_LIMIT_STRICT_WINDOW_MS: 900_000,
     ATLAS_SEARCH_ENABLED: false, // suites exercise the regex fallback (no Atlas locally)
+    CLOUDINARY_CLOUD_NAME: 'test-cloud',
+    CLOUDINARY_API_KEY: 'test-key',
+    CLOUDINARY_API_SECRET: 'test-secret',
+    CLOUDINARY_DELIVERY_HOST: 'res.cloudinary.com',
     ...overrides,
   };
 }
