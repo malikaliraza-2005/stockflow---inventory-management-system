@@ -68,7 +68,7 @@ async function createProduct(
   return res.body.id as string;
 }
 
-function move(app: ReturnType<typeof makeApp>, auth: string, body: unknown, key = randomUUID()) {
+function move(app: ReturnType<typeof makeApp>, auth: string, body: object, key = randomUUID()) {
   return request(app)
     .post(MOVEMENTS)
     .set('Authorization', auth)

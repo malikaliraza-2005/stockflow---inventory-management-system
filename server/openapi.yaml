@@ -36,6 +36,8 @@ tags:
     description: Product catalog + materialized stock — 05 §7.3 (F4). Reads both-roles; catalog writes and lifecycle Admin. quantity is MovementService-only (BR-17); the invariant quantity == Σ ledger holds from creation via the INITIAL row.
   - name: movements
     description: Stock movements & the ledger — 05 §7.5 (F6), the change-controlled core. POST /inventory/movements is the sole over-the-wire quantity writer (Boundary T1); idempotent via the Idempotency-Key header (ARB-02). STOCK_IN/STOCK_OUT both-roles; ADJUSTMENT Admin (the one validate-before-authorize route, AAD §5.2).
+  - name: transactions
+    description: Stock ledger reads — 05 §7.6 (F7). The append-only ledger; both-roles read. No write path exists (DES-1) — MovementService is the only writer. Filterable by date/type/product/user; archived-product rows are hidden unless requested (EC-16 badge).
   - name: settings
     description: System settings singleton — 05 §7.10 (F11). Admin-only; Staff reads the same display constants from the session payload (FCM-01). defaultLowStockThreshold is copied into products at creation (DN-3) — edits never rewrite existing products.
   - name: uploads
@@ -939,6 +941,72 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
+
+  /transactions:
+    get:
+      tags: [transactions]
+      operationId: listTransactions
+      summary: List the stock ledger (FR-TXN-01…03) — Any
+      description: >-
+        The append-only Stock Ledger (F7 tab). Rows carry product + user display
+        labels; an archived-product row sets productArchived (EC-16 badge) and is
+        hidden unless includeArchived=true — or a specific productId is filtered
+        (explicit intent wins). Paginated (05 §5 envelope), createdAt-desc.
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - name: from
+          in: query
+          description: Inclusive start (ISO-8601 date or datetime).
+          schema:
+            type: string
+        - name: to
+          in: query
+          description: Inclusive end (a date-only value covers its whole UTC day).
+          schema:
+            type: string
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [INITIAL, STOCK_IN, STOCK_OUT, ADJUSTMENT]
+        - name: productId
+          in: query
+          schema:
+            type: string
+            pattern: '^[0-9a-fA-F]{24}$'
+        - name: userId
+          in: query
+          schema:
+            type: string
+            pattern: '^[0-9a-fA-F]{24}$'
+        - name: includeArchived
+          in: query
+          description: Include rows whose product is archived (default false).
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: List envelope of ledger rows.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginationMeta'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/TransactionRow'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
 
   /settings:
     get:
@@ -1881,6 +1949,55 @@ components:
         createdAt:
           type: string
           format: date-time
+
+    TransactionRow:
+      type: object
+      description: A stock-ledger row with resolved product + user labels (05 §7.6, F7).
+      required:
+        [
+          id,
+          createdAt,
+          productId,
+          productName,
+          productSku,
+          productArchived,
+          type,
+          quantityChange,
+          quantityAfter,
+          userId,
+          userName,
+        ]
+      properties:
+        id:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        productId:
+          type: string
+        productName:
+          type: string
+        productSku:
+          type: string
+        productArchived:
+          type: boolean
+        type:
+          type: string
+          enum: [INITIAL, STOCK_IN, STOCK_OUT, ADJUSTMENT]
+        quantityChange:
+          type: integer
+        quantityAfter:
+          type: integer
+          minimum: 0
+        userId:
+          type: string
+        userName:
+          type: string
+        reason:
+          type: string
+          enum: [DAMAGED, LOST, FOUND, COUNT_CORRECTION, RETURN, OTHER]
+        note:
+          type: string
 
     MovementResponse:
       type: object

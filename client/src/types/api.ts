@@ -405,6 +405,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/transactions': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * List the stock ledger (FR-TXN-01…03) — Any
+     * @description The append-only Stock Ledger (F7 tab). Rows carry product + user display labels; an archived-product row sets productArchived (EC-16 badge) and is hidden unless includeArchived=true — or a specific productId is filtered (explicit intent wins). Paginated (05 §5 envelope), createdAt-desc.
+     */
+    get: operations['listTransactions'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/settings': {
     parameters: {
       query?: never;
@@ -826,6 +846,25 @@ export interface components {
       note?: string;
       /** Format: date-time */
       createdAt: string;
+    };
+    /** @description A stock-ledger row with resolved product + user labels (05 §7.6, F7). */
+    TransactionRow: {
+      id: string;
+      /** Format: date-time */
+      createdAt: string;
+      productId: string;
+      productName: string;
+      productSku: string;
+      productArchived: boolean;
+      /** @enum {string} */
+      type: 'INITIAL' | 'STOCK_IN' | 'STOCK_OUT' | 'ADJUSTMENT';
+      quantityChange: number;
+      quantityAfter: number;
+      userId: string;
+      userName: string;
+      /** @enum {string} */
+      reason?: 'DAMAGED' | 'LOST' | 'FOUND' | 'COUNT_CORRECTION' | 'RETURN' | 'OTHER';
+      note?: string;
     };
     /** @description The committed/replayed movement plus the resulting product state (05 §7.5). */
     MovementResponse: {
@@ -1816,6 +1855,45 @@ export interface operations {
           'application/json': components['schemas']['ErrorEnvelope'];
         };
       };
+    };
+  };
+  listTransactions: {
+    parameters: {
+      query?: {
+        /** @description 1-based page number (05 §5). */
+        page?: components['parameters']['page'];
+        /** @description Page size — hard cap 100; values above cap → VALIDATION_ERROR (NFR-10). */
+        limit?: components['parameters']['limit'];
+        /** @description Inclusive start (ISO-8601 date or datetime). */
+        from?: string;
+        /** @description Inclusive end (a date-only value covers its whole UTC day). */
+        to?: string;
+        type?: 'INITIAL' | 'STOCK_IN' | 'STOCK_OUT' | 'ADJUSTMENT';
+        productId?: string;
+        userId?: string;
+        /** @description Include rows whose product is archived (default false). */
+        includeArchived?: boolean;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description List envelope of ledger rows. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PaginationMeta'] & {
+            data: components['schemas']['TransactionRow'][];
+          };
+        };
+      };
+      400: components['responses']['ValidationError'];
+      401: components['responses']['Unauthorized'];
+      403: components['responses']['Forbidden'];
     };
   };
   getSettings: {
