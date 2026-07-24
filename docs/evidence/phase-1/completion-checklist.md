@@ -72,12 +72,20 @@
 - **T6 race guard** — MongoDB snapshot isolation does not serialize demotions of *different* admin documents; a shared `appguards.$inc` forces the write-conflict that makes BR-30 hold. Recorded in `services/UserService.ts`.
 - **react-router pinned to v6.30** (FEA mandate); its data router is jsdom-incompatible → component routing tested via MemoryRouter.
 
+## Known follow-ups (do NOT block code-complete; address at 0.12 deploy)
+
+- **FU-1 — Split the migration identity from the app identity (privilege).** The seed's release-phase step (`applyJsonValidators`, added in PR 1.1) runs `collMod`/`createCollection`, which requires **`dbAdmin`** — but the app user is intentionally `readWrite` (least-privilege, DEP §12 item 4). Surfaced running the seed against Atlas dev locally (2026-07-24): the seed failed `collMod` until the dev user was granted `dbAdmin@ims`. That grant unblocks dev but leaves the **runtime** app over-privileged.
+  - **Correct fix (design at 0.12, not before):** two Atlas identities — a *migrator* (`dbAdmin@<db>`, runs seed/validators/indexes as the release-phase command) and an *app runtime* (`readWrite@<db>`, serves requests). The seed/migration path and the app connection then use different credentials.
+  - **Why deferred:** the right shape depends on how staging/prod provision DB users (a DEP/deploy decision); designing it against dev alone would likely be redone. Tracked here so it is not lost.
+  - **Dev workaround in place:** `ims-dev-app` has `readWrite@ims` **+ `dbAdmin@ims`** (added 2026-07-24). Isolation intact — still scoped to `ims`, no cross-DB access.
+
 ## Remaining before phase exit is fully signed
 
 The single open DoD item is **staging acceptance**, which shares the blocker with Phase-0 task 0.12: a purchased domain + Render/Vercel deploy. Once that deploy session runs, verify on staging:
 1. Both roles authenticate through the real `app.` / `api.` domain topology.
 2. **DEP §2 refresh verification** — an expired access token is silently refreshed via the httpOnly cookie across the two-origin boundary (the SameSite=Strict cookie scoped to `/api/v1/auth`).
-3. Re-sign this checklist with the staging evidence.
+3. Resolve **FU-1** as part of provisioning staging DB users.
+4. Re-sign this checklist with the staging evidence.
 
 **Sign-off (code-complete):** _______________ (operator) · date: ________
 **Sign-off (staging acceptance):** _______________ (operator) · date: ________
