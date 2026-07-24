@@ -43,6 +43,7 @@ function makeService(): ProductService {
       destroyed.push(publicId);
       return { result: 'ok' };
     },
+    listFolder: async () => [],
   };
   return new ProductService({
     audit,
