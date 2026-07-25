@@ -61,11 +61,16 @@ const transactionSchema = new Schema<TransactionDoc>(
   { timestamps: { createdAt: true, updatedAt: false }, versionKey: false }, // DES-1: no updatedAt
 );
 
-// DBD §2.4 index set. NOTE: `{idempotencyKey:1}` unique-sparse is intentionally
-// DEFERRED to F6 (its first real consumer — the movement dedup path, ARB-02).
+// DBD §2.4 index set.
 transactionSchema.index({ productId: 1, createdAt: -1 }); // history, reconciliation
 transactionSchema.index({ createdAt: -1 }); // ledger list, dashboard, reports
 transactionSchema.index({ userId: 1, createdAt: -1 });
 transactionSchema.index({ type: 1, createdAt: -1 });
+// F6: the authoritative movement dedup (BR-20, ARB-02). SPARSE so INITIAL /
+// compensation rows (which carry no key, PDV-04) never collide; UNIQUE so a
+// duplicate client key is a hard duplicate-key error the movement transaction
+// catches and re-reads as a replay. Sparse+unique = "unique among documents
+// that HAVE the field" — exactly the movement-replay semantics.
+transactionSchema.index({ idempotencyKey: 1 }, { unique: true, sparse: true });
 
 export const Transaction = model<TransactionDoc>('Transaction', transactionSchema);

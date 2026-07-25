@@ -19,6 +19,12 @@ export interface DestroyResult {
   result: string;
 }
 
+/** One asset from a folder listing (Admin API) — the orphan sweep's input. */
+export interface CloudinaryAsset {
+  publicId: string;
+  createdAt: Date;
+}
+
 export interface CloudinaryClient {
   readonly cloudName: string;
   readonly apiKey: string;
@@ -26,6 +32,11 @@ export interface CloudinaryClient {
   signUpload(params: { folder: string; timestamp: number }): SignedUploadParams;
   /** Destroy one asset by publicId (Admin API). */
   destroy(publicId: string): Promise<DestroyResult>;
+  /**
+   * List every asset under a folder prefix (Admin API), following pagination.
+   * The BEV-04 orphan sweep's discovery mechanism (F6, first consumer).
+   */
+  listFolder(folder: string): Promise<CloudinaryAsset[]>;
 }
 
 export interface CloudinaryConfig {
@@ -51,6 +62,26 @@ export function createCloudinary(config: CloudinaryConfig): CloudinaryClient {
     },
     async destroy(publicId) {
       return (await cloudinary.uploader.destroy(publicId)) as DestroyResult;
+    },
+    async listFolder(folder) {
+      const assets: CloudinaryAsset[] = [];
+      let nextCursor: string | undefined;
+      do {
+        const page = (await cloudinary.api.resources({
+          type: 'upload',
+          prefix: folder,
+          max_results: 500,
+          ...(nextCursor ? { next_cursor: nextCursor } : {}),
+        })) as {
+          resources: { public_id: string; created_at: string }[];
+          next_cursor?: string;
+        };
+        for (const r of page.resources) {
+          assets.push({ publicId: r.public_id, createdAt: new Date(r.created_at) });
+        }
+        nextCursor = page.next_cursor;
+      } while (nextCursor);
+      return assets;
     },
   };
 }

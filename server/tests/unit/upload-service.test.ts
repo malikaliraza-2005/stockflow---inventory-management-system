@@ -23,6 +23,7 @@ function fakeCloudinary(result: DestroyResult['result'] = 'ok') {
       destroyed.push(publicId);
       return { result };
     },
+    listFolder: async () => [],
   };
   return { client, destroyed };
 }
@@ -80,6 +81,7 @@ describe('destroyQuietly (BR-38 best-effort)', () => {
       destroy: async () => {
         throw new Error('cloudinary down');
       },
+      listFolder: async () => [],
     };
     await expect(
       new UploadService({ cloudinary: client }).destroyQuietly(['ims/prod/a']),

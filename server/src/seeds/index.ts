@@ -18,8 +18,10 @@ import bcrypt from 'bcrypt';
 import type { Env } from '../config/env.js';
 import type { Logger } from '../lib/logger.js';
 import { Category, CATEGORY_NAME_COLLATION } from '../models/Category.js';
+import { JobLock } from '../models/JobLock.js';
 import { applyJsonValidators } from '../models/jsonValidators.js';
 import { Settings, SETTINGS_DEFAULTS } from '../models/Settings.js';
+import { Transaction } from '../models/Transaction.js';
 import { User } from '../models/User.js';
 
 const BCRYPT_COST = 12; // BR-32
@@ -37,7 +39,16 @@ export async function runSeed(
   logger: Logger,
 ): Promise<SeedResult> {
   // Indexes first: the email/name unique indexes ARE the idempotency backstop.
-  await Promise.all([User.init(), Category.init(), Settings.init()]);
+  // `Transaction.init()` builds the F6 `{idempotencyKey}` unique-sparse index —
+  // the authoritative movement-replay backstop (ARB-02) must exist before the
+  // movement path serves traffic.
+  await Promise.all([
+    User.init(),
+    Category.init(),
+    Settings.init(),
+    Transaction.init(),
+    JobLock.init(), // A-8 lease TTL index (BEV-05)
+  ]);
 
   // DBD §5 second layer — JSON-schema validators (collMod is idempotent).
   // Release-phase placement means every environment carries them before new

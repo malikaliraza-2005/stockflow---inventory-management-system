@@ -4,14 +4,18 @@
  * edit/archive (Restore only). "Print QR label" renders the client-side QRLabel
  * (FR-PROD-08 — no server endpoint) and prints just the label.
  *
- * Movement actions (Stock In/Out/Adjust) arrive with F6.
+ * Movement actions (Stock In/Out — both roles; Adjust — Admin) open the F6
+ * dialogs; a completed movement refetches the product. "View ledger" deep-links
+ * to this product's filtered Stock Ledger (SMP §5).
  */
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { ApiError } from '../../api/client';
 import { archiveProduct, deleteProduct, getProduct, restoreProduct } from '../../api/products';
+import { AdjustmentDialog } from '../../components/domain/AdjustmentDialog';
 import { QRLabel } from '../../components/domain/QRLabel';
+import { StockMovementDialog } from '../../components/domain/StockMovementDialog';
 import { StockStatusBadge } from '../../components/domain/StockStatusBadge';
 import { AlertBanner } from '../../components/ui/AlertBanner';
 import { Button } from '../../components/ui/Button';
@@ -30,12 +34,16 @@ export default function ProductDetailPage() {
   const toast = useToast();
   const can = usePermission();
   const canManage = can('products.manage');
+  const canMove = can('movements.stockInOut');
+  const canAdjust = can('movements.adjust');
   const currency = useSettingsStore(selectCurrency);
 
   const { data: product, loading, error, refetch } = useQueryState(() => getProduct(id), [id]);
 
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showLabel, setShowLabel] = useState(false);
+  const [movementType, setMovementType] = useState<'STOCK_IN' | 'STOCK_OUT' | null>(null);
+  const [adjustOpen, setAdjustOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
   async function runLifecycle(action: () => Promise<unknown>, success: string) {
@@ -129,6 +137,22 @@ export default function ProductDetailPage() {
       </div>
 
       <div className="flex flex-wrap gap-3 border-t border-gray-200 pt-4">
+        {canMove && !product.isArchived && (
+          <>
+            <Button onClick={() => setMovementType('STOCK_IN')}>Stock In</Button>
+            <Button variant="secondary" onClick={() => setMovementType('STOCK_OUT')}>
+              Stock Out
+            </Button>
+          </>
+        )}
+        {canAdjust && !product.isArchived && (
+          <Button variant="secondary" onClick={() => setAdjustOpen(true)}>
+            Adjust
+          </Button>
+        )}
+        <Button variant="ghost" onClick={() => navigate(`/transactions?productId=${id}`)}>
+          View ledger
+        </Button>
         <Button variant="secondary" onClick={() => setShowLabel(true)}>
           Print QR label
         </Button>
@@ -180,6 +204,39 @@ export default function ProductDetailPage() {
           </div>
         </div>
       </Modal>
+
+      <StockMovementDialog
+        open={movementType !== null}
+        onClose={() => setMovementType(null)}
+        product={{
+          id: product.id,
+          name: product.name,
+          sku: product.sku,
+          quantity: product.quantity,
+        }}
+        defaultType={movementType ?? 'STOCK_IN'}
+        onCompleted={() => {
+          setMovementType(null);
+          toast.success('Stock updated.');
+          refetch();
+        }}
+      />
+
+      <AdjustmentDialog
+        open={adjustOpen}
+        onClose={() => setAdjustOpen(false)}
+        product={{
+          id: product.id,
+          name: product.name,
+          sku: product.sku,
+          quantity: product.quantity,
+        }}
+        onCompleted={() => {
+          setAdjustOpen(false);
+          toast.success('Adjustment recorded.');
+          refetch();
+        }}
+      />
 
       <Modal open={showLabel} onClose={() => setShowLabel(false)} title="QR label" size="sm">
         <div className="space-y-4">

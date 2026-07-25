@@ -12,10 +12,14 @@
  *        (host restarts; error tracking wiring lands with the SENTRY_DSN
  *        consumer in Phase 6 hardening)
  */
+import { randomUUID } from 'node:crypto';
+
 import mongoose from 'mongoose';
 
 import { createApp } from './app.js';
 import { loadEnv } from './config/env.js';
+import { startJobs } from './jobs/scheduler.js';
+import { createCloudinary } from './lib/cloudinary.js';
 import { createLogger } from './lib/logger.js';
 import { IntegrityError, verifyBootIntegrity } from './seeds/integrity.js';
 
@@ -76,10 +80,24 @@ export async function start(): Promise<void> {
   ready = true;
   logger.info('boot complete — /ready true');
 
+  // Scheduled jobs (BEA §7) — each tick is leader-guarded (A-8), so a scaled
+  // deployment runs each job once. Timers are unref'd; ticks skip during drain.
+  const scheduler = startJobs({
+    logger,
+    cloudinary: createCloudinary({
+      cloudName: env.CLOUDINARY_CLOUD_NAME,
+      apiKey: env.CLOUDINARY_API_KEY,
+      apiSecret: env.CLOUDINARY_API_SECRET,
+    }),
+    instanceId: `${process.pid}-${randomUUID()}`,
+    isShuttingDown: () => shuttingDown,
+  });
+
   const shutdown = (signal: string) => {
     if (shuttingDown) return;
     shuttingDown = true;
     ready = false; // /ready flips first so the LB drains us (NFR-15)
+    scheduler.stop(); // stop scheduling new job ticks (NFR-21)
     logger.info({ signal }, 'shutdown — draining in-flight requests');
 
     const force = setTimeout(() => {

@@ -21,8 +21,10 @@ import helmet from 'helmet';
 
 import { createAuthController } from './controllers/authController.js';
 import { createCategoriesController } from './controllers/categoriesController.js';
+import { createMovementsController } from './controllers/movementsController.js';
 import { createProductsController } from './controllers/productsController.js';
 import { createSettingsController } from './controllers/settingsController.js';
+import { createTransactionsController } from './controllers/transactionsController.js';
 import { createUploadController } from './controllers/uploadController.js';
 import { createUsersController } from './controllers/usersController.js';
 import { NotFoundError, ServiceUnavailableError } from './errors/AppError.js';
@@ -36,8 +38,10 @@ import { createGlobalLimiter, createStrictLimiter } from './middleware/rateLimit
 import { requestId } from './middleware/requestId.js';
 import { createAuthRouter } from './routes/auth.js';
 import { createCategoriesRouter } from './routes/categories.js';
+import { createMovementsRouter } from './routes/movements.js';
 import { createProductsRouter } from './routes/products.js';
 import { createSettingsRouter } from './routes/settings.js';
+import { createTransactionsRouter } from './routes/transactions.js';
 import { createUploadRouter } from './routes/upload.js';
 import { createUsersRouter } from './routes/users.js';
 import { AuditService } from './services/AuditService.js';
@@ -46,6 +50,7 @@ import { CategoryService } from './services/CategoryService.js';
 import { MovementService } from './services/MovementService.js';
 import { ProductService } from './services/ProductService.js';
 import { SettingsService } from './services/SettingsService.js';
+import { TransactionService } from './services/TransactionService.js';
 import { UploadService } from './services/UploadService.js';
 import { UserService } from './services/UserService.js';
 
@@ -183,6 +188,7 @@ export function createApp(deps: AppDeps): Express {
     logger,
   });
   const settingsService = new SettingsService({ audit });
+  const transactionService = new TransactionService();
 
   app.use(
     '/api/v1/auth',
@@ -221,6 +227,24 @@ export function createApp(deps: AppDeps): Express {
     '/api/v1/products',
     createProductsRouter({
       controller: createProductsController(productService),
+      authenticate: authenticateMw,
+      authorize,
+    }),
+  );
+
+  app.use(
+    '/api/v1/inventory',
+    createMovementsRouter({
+      controller: createMovementsController(movementService),
+      authenticate: authenticateMw,
+      authorize,
+    }),
+  );
+
+  app.use(
+    '/api/v1/transactions',
+    createTransactionsRouter({
+      controller: createTransactionsController(transactionService),
       authenticate: authenticateMw,
       authorize,
     }),
