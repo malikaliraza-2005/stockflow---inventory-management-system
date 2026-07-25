@@ -74,6 +74,15 @@ export const router = createBrowserRouter([
                     }),
                   },
                   {
+                    // Scanner — Any role (F8). ZXing rides its own lazy chunk
+                    // inside ScannerViewport; the Adjust action is gated in-page
+                    // (movements.adjust), so no RequireRole wrapper here.
+                    path: 'scanner',
+                    lazy: async () => ({
+                      Component: (await import('./pages/Scanner')).default,
+                    }),
+                  },
+                  {
                     // Stock Ledger — Any role reads (F7); the Audit tab (Phase 5)
                     // will be gated in-page, not by a separate route.
                     path: 'transactions',

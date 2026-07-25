@@ -58,7 +58,11 @@ export const api = axios.create();
 // without a full import.meta.env (FEV-03 validation still fails loudly).
 api.interceptors.request.use((config) => {
   config.baseURL ??= `${getConfig().apiBaseUrl}/api/v1`;
-  config.withCredentials = true; // the refresh cookie is path-scoped server-side
+  // Credentials mode ONLY on /auth — mirrors the server CORS policy (app.ts:
+  // credentials = path.startsWith('/api/v1/auth')). Every other route is
+  // Bearer-only; sending credentials there trips the missing-ACAC block and
+  // discards the response. performRefresh uses its own axios, so it's unaffected.
+  config.withCredentials = (config.url ?? '').includes('/auth/');
   const token = useAuthStore.getState().accessToken;
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;

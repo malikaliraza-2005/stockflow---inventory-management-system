@@ -37,6 +37,9 @@ export interface ProductFormProps {
   onCancel: () => void;
   /** Edit-only: re-fetch the product after a STALE_WRITE. */
   onReload?: (() => void) | undefined;
+  /** Create-only: pre-fill the barcode from the Scanner's create-from-barcode
+   *  route state (FR-SCAN-04). Ignored in edit mode (`product` wins). */
+  initialBarcode?: string | undefined;
 }
 
 type FieldErrors = Record<string, string>;
@@ -48,12 +51,13 @@ export function ProductForm({
   onSaved,
   onCancel,
   onReload,
+  initialBarcode,
 }: ProductFormProps) {
   const isEdit = mode === 'edit';
 
   const [name, setName] = useState(product?.name ?? '');
   const [sku, setSku] = useState(product?.sku ?? '');
-  const [barcode, setBarcode] = useState(product?.barcode ?? '');
+  const [barcode, setBarcode] = useState(product?.barcode ?? initialBarcode ?? '');
   const [categoryId, setCategoryId] = useState(product?.categoryId ?? '');
   const [description, setDescription] = useState(product?.description ?? '');
   const [costPrice, setCostPrice] = useState(product?.costPrice ?? '');
