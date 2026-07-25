@@ -3,7 +3,7 @@
  * form's select, then renders ProductForm in create mode. On save → detail.
  */
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import { listCategories, type Category } from '../../api/categories';
 import { ProductForm } from '../../components/domain/ProductForm';
@@ -12,9 +12,17 @@ import { useToast } from '../../hooks/useToast';
 
 export default function AddProductPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const toast = useToast();
   const [categories, setCategories] = useState<Category[]>([]);
   const [loaded, setLoaded] = useState(false);
+
+  // Create-from-barcode (FR-SCAN-04): the Scanner routes here with the scanned
+  // code in route state, which pre-fills the barcode field.
+  const scannedBarcode =
+    location.state && typeof (location.state as { barcode?: unknown }).barcode === 'string'
+      ? (location.state as { barcode: string }).barcode
+      : undefined;
 
   useEffect(() => {
     void listCategories({ limit: 100, sort: 'name', order: 'asc' }).then((r) => {
@@ -36,6 +44,7 @@ export default function AddProductPage() {
         <ProductForm
           mode="create"
           categories={categories}
+          initialBarcode={scannedBarcode}
           onSaved={(p) => {
             toast.success('Product created.');
             navigate(`/products/${p.id}`);
