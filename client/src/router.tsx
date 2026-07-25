@@ -84,10 +84,18 @@ export const router = createBrowserRouter([
                   },
                   {
                     // Stock Ledger — Any role reads (F7); the Audit tab (Phase 5)
-                    // will be gated in-page, not by a separate route.
+                    // is gated in-page (usePermission), not by a separate route.
                     path: 'transactions',
                     lazy: async () => ({
                       Component: (await import('./pages/Transactions')).default,
+                    }),
+                  },
+                  {
+                    // Reports — Any role views (F10); export + consistency gated
+                    // in-page (reports.export / reports.consistency).
+                    path: 'reports',
+                    lazy: async () => ({
+                      Component: (await import('./pages/Reports')).default,
                     }),
                   },
                   {
