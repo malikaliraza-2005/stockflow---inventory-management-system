@@ -19,10 +19,13 @@ import express, { type Express } from 'express';
 import mongoSanitize from 'express-mongo-sanitize';
 import helmet from 'helmet';
 
+import { createAuditLogsController } from './controllers/auditLogsController.js';
 import { createAuthController } from './controllers/authController.js';
 import { createCategoriesController } from './controllers/categoriesController.js';
+import { createDashboardController } from './controllers/dashboardController.js';
 import { createMovementsController } from './controllers/movementsController.js';
 import { createProductsController } from './controllers/productsController.js';
+import { createReportsController } from './controllers/reportsController.js';
 import { createSettingsController } from './controllers/settingsController.js';
 import { createTransactionsController } from './controllers/transactionsController.js';
 import { createUploadController } from './controllers/uploadController.js';
@@ -36,19 +39,25 @@ import { createCloudinary } from './lib/cloudinary.js';
 import { httpLogger } from './middleware/httpLogger.js';
 import { createGlobalLimiter, createStrictLimiter } from './middleware/rateLimiters.js';
 import { requestId } from './middleware/requestId.js';
+import { createAuditLogsRouter } from './routes/auditLogs.js';
 import { createAuthRouter } from './routes/auth.js';
 import { createCategoriesRouter } from './routes/categories.js';
+import { createDashboardRouter } from './routes/dashboard.js';
 import { createMovementsRouter } from './routes/movements.js';
 import { createProductsRouter } from './routes/products.js';
+import { createReportsRouter } from './routes/reports.js';
 import { createSettingsRouter } from './routes/settings.js';
 import { createTransactionsRouter } from './routes/transactions.js';
 import { createUploadRouter } from './routes/upload.js';
 import { createUsersRouter } from './routes/users.js';
+import { AuditQueryService } from './services/AuditQueryService.js';
 import { AuditService } from './services/AuditService.js';
 import { AuthService } from './services/AuthService.js';
 import { CategoryService } from './services/CategoryService.js';
+import { DashboardService } from './services/DashboardService.js';
 import { MovementService } from './services/MovementService.js';
 import { ProductService } from './services/ProductService.js';
+import { ReportService } from './services/ReportService.js';
 import { SettingsService } from './services/SettingsService.js';
 import { TransactionService } from './services/TransactionService.js';
 import { UploadService } from './services/UploadService.js';
@@ -189,6 +198,9 @@ export function createApp(deps: AppDeps): Express {
   });
   const settingsService = new SettingsService({ audit });
   const transactionService = new TransactionService();
+  const dashboardService = new DashboardService();
+  const reportService = new ReportService();
+  const auditQueryService = new AuditQueryService();
 
   app.use(
     '/api/v1/auth',
@@ -245,6 +257,33 @@ export function createApp(deps: AppDeps): Express {
     '/api/v1/transactions',
     createTransactionsRouter({
       controller: createTransactionsController(transactionService),
+      authenticate: authenticateMw,
+      authorize,
+    }),
+  );
+
+  app.use(
+    '/api/v1/dashboard',
+    createDashboardRouter({
+      controller: createDashboardController(dashboardService),
+      authenticate: authenticateMw,
+      authorize,
+    }),
+  );
+
+  app.use(
+    '/api/v1/audit-logs',
+    createAuditLogsRouter({
+      controller: createAuditLogsController(auditQueryService),
+      authenticate: authenticateMw,
+      authorize,
+    }),
+  );
+
+  app.use(
+    '/api/v1/reports',
+    createReportsRouter({
+      controller: createReportsController(reportService),
       authenticate: authenticateMw,
       authorize,
     }),
