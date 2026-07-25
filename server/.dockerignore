@@ -1,0 +1,9 @@
+# Keep the build context lean and correct: never ship local build artifacts,
+# host-compiled native modules, secrets, or tests into the image.
+node_modules
+dist
+.env
+*.log
+tests
+coverage
+.git
