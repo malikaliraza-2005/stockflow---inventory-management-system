@@ -8,7 +8,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 
 import { ApiError } from '../../api/client';
-import { recordMovement, type MovementResponse } from '../../api/movements';
+import { recordMovement, type MovementRequest, type MovementResponse } from '../../api/movements';
 import { messageFor } from '../../lib/errorMap';
 import { ADJUSTMENT_REASONS, movementSchema } from '../../lib/validation/schemas/movements';
 import { useIdempotencyKey } from '../../hooks/useIdempotencyKey';
@@ -129,7 +129,7 @@ export function AdjustmentDialog({ open, onClose, product, onCompleted }: Adjust
     setErrors({});
     setLoading(true);
     try {
-      const result = await recordMovement(parsed.data, idempotencyKey.current());
+      const result = await recordMovement(parsed.data as MovementRequest, idempotencyKey.current());
       idempotencyKey.reset();
       onCompleted(result);
     } catch (error) {
@@ -211,7 +211,6 @@ export function AdjustmentDialog({ open, onClose, product, onCompleted }: Adjust
 
           <FormField label="Reason" htmlFor="adjust-reason" error={errors.reason} required>
             <select
-              id="adjust-reason"
               value={reason}
               onChange={(e) => setReason(e.target.value as typeof reason)}
               className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"

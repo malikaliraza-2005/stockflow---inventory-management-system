@@ -14,7 +14,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 
 import { ApiError } from '../../api/client';
-import { recordMovement, type MovementResponse } from '../../api/movements';
+import { recordMovement, type MovementRequest, type MovementResponse } from '../../api/movements';
 import { messageFor } from '../../lib/errorMap';
 import { movementSchema } from '../../lib/validation/schemas/movements';
 import { useIdempotencyKey } from '../../hooks/useIdempotencyKey';
@@ -118,7 +118,9 @@ export function StockMovementDialog({
     setErrors({});
     setLoading(true);
     try {
-      const result = await recordMovement(parsed.data, idempotencyKey.current());
+      // parsed.data is a validated MovementRequest; the only type gap is zod's
+      // `?: T | undefined` vs the generated `?: T` under exactOptionalPropertyTypes.
+      const result = await recordMovement(parsed.data as MovementRequest, idempotencyKey.current());
       idempotencyKey.reset();
       onCompleted(result);
     } catch (error) {
