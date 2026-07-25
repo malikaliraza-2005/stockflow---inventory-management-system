@@ -74,6 +74,14 @@ export const router = createBrowserRouter([
                     }),
                   },
                   {
+                    // Stock Ledger — Any role reads (F7); the Audit tab (Phase 5)
+                    // will be gated in-page, not by a separate route.
+                    path: 'transactions',
+                    lazy: async () => ({
+                      Component: (await import('./pages/Transactions')).default,
+                    }),
+                  },
+                  {
                     // admin chunk — guard OUTSIDE lazy (SMP Issue 2: the chunk
                     // must not download before the role check)
                     element: <RequireRole role="ADMIN" />,
