@@ -18,14 +18,21 @@ export interface KpiCardProps {
 
 export function KpiCard({ label, value, hint, loading = false }: KpiCardProps) {
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4 transition-shadow duration-150 hover:shadow-md">
-      <p className="text-sm text-gray-600">{label}</p>
+    <div className="group relative overflow-hidden rounded-xl border border-neutral-200 bg-white p-5 shadow-card transition-all duration-200 hover:-translate-y-0.5 hover:shadow-soft">
+      {/* Decorative brand accent — subtle depth, brightens on hover */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-brand-50 opacity-70 transition-opacity duration-200 group-hover:opacity-100"
+      />
+      <p className="relative text-xs font-medium uppercase tracking-wide text-neutral-500">
+        {label}
+      </p>
       {loading ? (
-        <Skeleton className="mt-2 h-8 w-24" />
+        <Skeleton className="mt-3 h-9 w-28" />
       ) : (
-        <p className="mt-1 text-2xl font-semibold text-gray-900">{value}</p>
+        <p className="relative mt-1.5 text-3xl font-bold tracking-tight text-neutral-900">{value}</p>
       )}
-      {hint && <p className="mt-1 text-xs text-gray-500">{hint}</p>}
+      {hint && <p className="relative mt-1 text-xs text-neutral-500">{hint}</p>}
     </div>
   );
 }

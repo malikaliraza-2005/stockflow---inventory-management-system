@@ -33,8 +33,8 @@ export function Logo({
       >
         <defs>
           <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="#2f5fe0" />
-            <stop offset="1" stopColor="#1a3782" />
+            <stop offset="0" stopColor="#8b5cf6" />
+            <stop offset="1" stopColor="#5b21b6" />
           </linearGradient>
         </defs>
         <rect width="32" height="32" rx="7" fill={`url(#${gradientId})`} />

@@ -84,7 +84,7 @@ export function DataTable<T>({
       {/* ≥ 768: real table */}
       <table className="hidden w-full border-collapse text-sm md:table">
         <thead>
-          <tr className="border-b border-gray-200 text-left text-gray-600">
+          <tr className="border-b border-neutral-200 text-left text-xs uppercase tracking-wide text-neutral-500">
             {renderExpandedRow && <th scope="col" className="w-8 px-2 py-2" />}
             {columns.map((col) => {
               const isSorted = sort?.key === col.key;
@@ -126,7 +126,7 @@ export function DataTable<T>({
             const isExpanded = expandedKeys.has(key);
             return (
               <Fragment key={key}>
-                <tr className="border-b border-gray-100 hover:bg-gray-50">
+                <tr className="border-b border-neutral-100 transition-colors hover:bg-brand-50/40">
                   {renderExpandedRow && (
                     <td className="px-2 py-2">
                       <button
@@ -170,7 +170,7 @@ export function DataTable<T>({
           const key = rowKey(row);
           const isExpanded = expandedKeys.has(key);
           return (
-            <div key={key} className="rounded-lg border border-gray-200 bg-white p-4">
+            <div key={key} className="rounded-xl border border-neutral-200 bg-white p-4 shadow-card">
               {mobileCard ? (
                 mobileCard(row)
               ) : (
@@ -233,7 +233,7 @@ function RowActionMenu<T>({ actions, row }: { actions: RowAction<T>[]; row: T })
       {open && (
         <div
           role="menu"
-          className="absolute right-0 z-10 mt-1 w-40 rounded-md border border-gray-200 bg-white py-1 shadow-lg"
+          className="absolute right-0 z-10 mt-1 w-40 rounded-lg border border-neutral-200 bg-white py-1 shadow-soft"
           onMouseLeave={() => setOpen(false)}
         >
           {actions.map((action) => (

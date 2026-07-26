@@ -54,6 +54,9 @@ describe('Settings page (F11)', () => {
     renderPage();
 
     const lowStock = await screen.findByLabelText(/default low-stock threshold/i);
+    // Wait for the settings fetch to populate the form before asserting — the
+    // input mounts empty and fills async, so asserting immediately races it.
+    await screen.findByDisplayValue('10');
     expect(lowStock).toHaveValue('10');
 
     await userEvent.clear(lowStock);
