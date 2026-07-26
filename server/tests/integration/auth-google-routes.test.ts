@@ -112,7 +112,9 @@ describe('POST /api/v1/auth/google', () => {
     const originalId = signup.body.user.id as string;
 
     // Google sign-in with the same (verified) email.
-    const res = await request(makeApp(stubVerifier({ sub: 'google-sub-link', email, emailVerified: true })))
+    const res = await request(
+      makeApp(stubVerifier({ sub: 'google-sub-link', email, emailVerified: true })),
+    )
       .post('/api/v1/auth/google')
       .send({ idToken: 'any-token' });
 
@@ -128,13 +130,21 @@ describe('POST /api/v1/auth/google', () => {
 
   it('unverified Google email is rejected (401) — linking requires email_verified', async () => {
     const res = await request(
-      makeApp(stubVerifier({ sub: 'google-sub-unv', email: 'unverified@example.com', emailVerified: false })),
+      makeApp(
+        stubVerifier({
+          sub: 'google-sub-unv',
+          email: 'unverified@example.com',
+          emailVerified: false,
+        }),
+      ),
     )
       .post('/api/v1/auth/google')
       .send({ idToken: 'any-token' });
 
     expect(res.status).toBe(401);
-    const created = await runAsSystem(() => User.countDocuments({ email: 'unverified@example.com' }));
+    const created = await runAsSystem(() =>
+      User.countDocuments({ email: 'unverified@example.com' }),
+    );
     expect(created).toBe(0); // nothing provisioned
   });
 

@@ -30,7 +30,9 @@ export function KpiCard({ label, value, hint, loading = false }: KpiCardProps) {
       {loading ? (
         <Skeleton className="mt-3 h-9 w-28" />
       ) : (
-        <p className="relative mt-1.5 text-3xl font-bold tracking-tight text-neutral-900">{value}</p>
+        <p className="relative mt-1.5 text-3xl font-bold tracking-tight text-neutral-900">
+          {value}
+        </p>
       )}
       {hint && <p className="relative mt-1 text-xs text-neutral-500">{hint}</p>}
     </div>

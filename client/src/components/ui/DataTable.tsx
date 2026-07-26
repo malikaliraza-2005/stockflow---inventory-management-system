@@ -170,7 +170,10 @@ export function DataTable<T>({
           const key = rowKey(row);
           const isExpanded = expandedKeys.has(key);
           return (
-            <div key={key} className="rounded-xl border border-neutral-200 bg-white p-4 shadow-card">
+            <div
+              key={key}
+              className="rounded-xl border border-neutral-200 bg-white p-4 shadow-card"
+            >
               {mobileCard ? (
                 mobileCard(row)
               ) : (
