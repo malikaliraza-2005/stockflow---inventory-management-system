@@ -9,6 +9,7 @@ import bcrypt from 'bcrypt';
 import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { useTestTenant } from '../helpers/tenant.js';
 
 import {
   AccountDeactivatedError,
@@ -62,6 +63,8 @@ async function createUser(overrides: Partial<Record<string, unknown>> = {}) {
 function pollAudit(action: string) {
   return expect.poll(() => AuditLog.countDocuments({ action }), { timeout: 2000 });
 }
+
+useTestTenant(); // SaaS: run every test in a fixed tenant context
 
 beforeAll(async () => {
   mongod = await MongoMemoryServer.create();

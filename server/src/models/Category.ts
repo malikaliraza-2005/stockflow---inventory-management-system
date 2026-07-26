@@ -7,11 +7,15 @@
  * the same collation or the index is bypassed for matching — CategoryService
  * (F3) is the single home of name queries; the seed honors it below.
  */
-import { model, Schema } from 'mongoose';
+import { model, Schema, type Types } from 'mongoose';
+
+import { tenantScopePlugin } from './plugins/tenantScope.js';
 
 export const CATEGORY_NAME_COLLATION = { locale: 'en', strength: 2 } as const;
 
 export interface CategoryDoc {
+  /** Owning tenant (SaaS). Added by the tenantScope plugin; declared here for types. */
+  tenantId: Types.ObjectId;
   name: string;
   description?: string;
   isSystem: boolean;
@@ -28,6 +32,12 @@ const categorySchema = new Schema<CategoryDoc>(
   { timestamps: true },
 );
 
-categorySchema.index({ name: 1 }, { unique: true, collation: CATEGORY_NAME_COLLATION });
+categorySchema.plugin(tenantScopePlugin);
+
+// Name uniqueness is PER-TENANT under the §2.2 collation (case-insensitive).
+categorySchema.index(
+  { tenantId: 1, name: 1 },
+  { unique: true, collation: CATEGORY_NAME_COLLATION },
+);
 
 export const Category = model<CategoryDoc>('Category', categorySchema);

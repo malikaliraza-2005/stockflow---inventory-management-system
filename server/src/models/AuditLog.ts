@@ -15,6 +15,8 @@
  */
 import { model, Schema, type Types } from 'mongoose';
 
+import { tenantScopePlugin } from './plugins/tenantScope.js';
+
 export const AUDIT_ENTITY_TYPES = ['PRODUCT', 'CATEGORY', 'USER', 'SETTINGS', 'SECURITY'] as const;
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[number];
 
@@ -53,6 +55,8 @@ export interface AuditChange {
 }
 
 export interface AuditLogDoc {
+  /** Owning tenant (SaaS). Added by the tenantScope plugin; declared here for types. */
+  tenantId: Types.ObjectId;
   actorId: Types.ObjectId;
   entityType: AuditEntityType;
   /** Absent for some security events (e.g., LOGIN_FAILED on unknown email). */
@@ -89,9 +93,13 @@ const auditLogSchema = new Schema<AuditLogDoc>(
   { timestamps: { createdAt: true, updatedAt: false } }, // DES-1: no updatedAt, ever
 );
 
+auditLogSchema.plugin(tenantScopePlugin);
+
 // R-5: cover every /audit-logs filter combination — no COLLSCAN (SCA-02).
-auditLogSchema.index({ entityType: 1, createdAt: -1 });
-auditLogSchema.index({ actorId: 1, createdAt: -1 });
-auditLogSchema.index({ entityId: 1, createdAt: -1 });
+// Tenant-LEADING (the audit trail is per-tenant).
+auditLogSchema.index({ tenantId: 1, createdAt: -1 }); // default trail list
+auditLogSchema.index({ tenantId: 1, entityType: 1, createdAt: -1 });
+auditLogSchema.index({ tenantId: 1, actorId: 1, createdAt: -1 });
+auditLogSchema.index({ tenantId: 1, entityId: 1, createdAt: -1 });
 
 export const AuditLog = model<AuditLogDoc>('AuditLog', auditLogSchema);

@@ -30,6 +30,7 @@ import {
 } from '../errors/AppError.js';
 import type { Logger } from '../lib/logger.js';
 import { escapeRegex, listEnvelope, type ListEnvelope } from '../lib/pagination.js';
+import { requireTenantId } from '../lib/tenantContext.js';
 import { Category } from '../models/Category.js';
 import { Product, type ProductDoc, type ProductImage } from '../models/Product.js';
 import { Settings } from '../models/Settings.js';
@@ -383,12 +384,16 @@ export class ProductService {
    *  cross-category prefix clash just shares one sequence — SKUs stay unique). */
   private async nextSku(categoryName: string): Promise<string> {
     const prefix = deriveSkuPrefix(categoryName);
+    // Native-driver site (bypasses the tenantScope plugin): the counter `_id`
+    // is composed with the tenant so SKU sequences — and thus SKU uniqueness —
+    // are isolated per tenant. `<tenantId>:<PREFIX>`.
+    const counterId = `${requireTenantId().toString()}:${prefix}`;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const counter = await mongoose.connection
           .collection('counters')
           .findOneAndUpdate(
-            { _id: prefix as unknown as never },
+            { _id: counterId as unknown as never },
             { $inc: { seq: 1 } },
             { upsert: true, returnDocument: 'after' },
           );

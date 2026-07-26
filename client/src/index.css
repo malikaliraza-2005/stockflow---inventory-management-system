@@ -7,12 +7,29 @@
 @import 'tailwindcss';
 
 @theme {
-  /* Brand */
+  /* Brand — full 50→900 ramp */
   --color-brand-50: #eef4ff;
   --color-brand-100: #dce7fd;
+  --color-brand-200: #c2d6fb;
+  --color-brand-300: #9bbcf7;
+  --color-brand-400: #6698f0;
   --color-brand-500: #2f5fe0;
-  --color-brand-600: #2450c4;
-  --color-brand-700: #1d419e;
+  --color-brand-600: #2450c4; /* primary action / focus ring */
+  --color-brand-700: #1d419e; /* wordmark / headings */
+  --color-brand-800: #1a3782;
+  --color-brand-900: #182f68;
+
+  /* Neutral — explicit slate ramp (migrate gray-* → neutral-* incrementally) */
+  --color-neutral-50: #f8fafc;
+  --color-neutral-100: #f1f5f9;
+  --color-neutral-200: #e2e8f0;
+  --color-neutral-300: #cbd5e1;
+  --color-neutral-400: #94a3b8;
+  --color-neutral-500: #64748b;
+  --color-neutral-600: #475569;
+  --color-neutral-700: #334155;
+  --color-neutral-800: #1e293b;
+  --color-neutral-900: #0f172a;
 
   /* Semantic — mapped to stock states (FEA §7) */
   --color-success-100: #dcf5e7;
@@ -21,6 +38,7 @@
   --color-warning-700: #a16207; /* LOW_STOCK */
   --color-danger-100: #fde4e1;
   --color-danger-600: #dc2626; /* OUT_OF_STOCK / destructive */
+  --color-danger-700: #b91c1c; /* destructive hover */
 
   /* Breakpoints (NFR-36) */
   --breakpoint-xs: 360px;

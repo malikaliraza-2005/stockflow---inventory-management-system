@@ -16,8 +16,10 @@ import { serializeSessionUser } from '../serializers/user.js';
 import type { AuthService, AuthSession } from '../services/AuthService.js';
 import type {
   ChangePasswordInput,
+  GoogleAuthInput,
   LoginInput,
   ResetPasswordInput,
+  SignupInput,
 } from '../validation/schemas/auth.js';
 
 export const REFRESH_COOKIE = 'refreshToken';
@@ -55,9 +57,22 @@ export function createAuthController(deps: AuthControllerDeps) {
     return { ip: req.ip, userAgent: req.headers['user-agent'] };
   }
 
+  const signup: RequestHandler = asyncHandler(async (req, res) => {
+    const input = req.body as SignupInput;
+    const session = await authService.signup(input, requestContext(req));
+    res.status(201);
+    sendSession(res, session);
+  });
+
   const login: RequestHandler = asyncHandler(async (req, res) => {
     const { email, password } = req.body as LoginInput;
     const session = await authService.login(email, password, requestContext(req));
+    sendSession(res, session);
+  });
+
+  const googleAuth: RequestHandler = asyncHandler(async (req, res) => {
+    const { idToken } = req.body as GoogleAuthInput;
+    const session = await authService.loginWithGoogle(idToken, requestContext(req));
     sendSession(res, session);
   });
 
@@ -91,5 +106,5 @@ export function createAuthController(deps: AuthControllerDeps) {
     res.status(204).end();
   });
 
-  return { login, refresh, logout, resetPassword, changePassword };
+  return { signup, login, googleAuth, refresh, logout, resetPassword, changePassword };
 }

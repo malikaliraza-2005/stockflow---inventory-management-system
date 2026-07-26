@@ -1,11 +1,15 @@
 /**
- * `settings` — DBD §2.7, 1:1. Seeded singleton; a missing document is a
- * startup integrity failure (BR-41). Defaults are COPIED at product creation
- * (DN-3), never referenced — editing settings never rewrites products.
+ * `settings` — DBD §2.7. One document PER TENANT (SaaS): created when a tenant
+ * is provisioned (signup/seed). Defaults are COPIED at product creation (DN-3),
+ * never referenced — editing settings never rewrites products.
  */
-import { model, Schema } from 'mongoose';
+import { model, Schema, type Types } from 'mongoose';
+
+import { tenantScopePlugin } from './plugins/tenantScope.js';
 
 export interface SettingsDoc {
+  /** Owning tenant (SaaS). Added by the tenantScope plugin; declared here for types. */
+  tenantId: Types.ObjectId;
   currency: string;
   defaultLowStockThreshold: number;
   movementWarningThreshold: number;
@@ -27,5 +31,10 @@ const settingsSchema = new Schema<SettingsDoc>(
   },
   { timestamps: true },
 );
+
+settingsSchema.plugin(tenantScopePlugin);
+
+// Exactly one settings document per tenant.
+settingsSchema.index({ tenantId: 1 }, { unique: true });
 
 export const Settings = model<SettingsDoc>('Settings', settingsSchema);

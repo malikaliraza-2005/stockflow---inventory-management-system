@@ -16,6 +16,7 @@
  */
 import { Types } from 'mongoose';
 
+import { requireTenantId } from '../lib/tenantContext.js';
 import { Product } from '../models/Product.js';
 import { Transaction, type TransactionDoc } from '../models/Transaction.js';
 import { User } from '../models/User.js';
@@ -65,7 +66,10 @@ interface ChartRow {
 }
 
 export class DashboardService {
-  private readonly cache = new Map<DashboardRange, CacheEntry>();
+  // SaaS: the cache is keyed by `<tenantId>:<range>` — NEVER by range alone, or
+  // one tenant's request would serve another tenant's cached payload (a
+  // cross-tenant leak the isolation suite guards against).
+  private readonly cache = new Map<string, CacheEntry>();
   private readonly cacheTtlMs: number;
   private readonly now: () => number;
 
@@ -76,11 +80,12 @@ export class DashboardService {
 
   async getSummary(range: DashboardRange): Promise<DashboardSummaryPayload> {
     const now = this.now();
-    const cached = this.cache.get(range);
+    const cacheKey = `${requireTenantId().toString()}:${range}`;
+    const cached = this.cache.get(cacheKey);
     if (cached && cached.expiresAt > now) return cached.payload;
 
     const payload = await this.compute(range, now);
-    this.cache.set(range, { payload, expiresAt: now + this.cacheTtlMs });
+    this.cache.set(cacheKey, { payload, expiresAt: now + this.cacheTtlMs });
     return payload;
   }
 

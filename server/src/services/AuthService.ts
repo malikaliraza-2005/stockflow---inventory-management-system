@@ -25,16 +25,19 @@
  */
 import bcrypt from 'bcrypt';
 import { randomBytes } from 'node:crypto';
-import type { HydratedDocument, Types } from 'mongoose';
+import mongoose, { type HydratedDocument, type Types } from 'mongoose';
 
 import {
   AccountDeactivatedError,
   AccountLockedError,
+  DuplicateEmailError,
   NotFoundError,
   UnauthorizedError,
   AppError,
 } from '../errors/AppError.js';
+import type { GoogleVerifier } from '../lib/googleVerify.js';
 import type { Logger } from '../lib/logger.js';
+import { runAsSystem, runWithTenant } from '../lib/tenantContext.js';
 import {
   generateOpaqueToken,
   hashToken,
@@ -42,15 +45,19 @@ import {
   signAccessToken,
   durationToMs,
 } from '../lib/tokens.js';
+import { Organization } from '../models/Organization.js';
 import { RefreshToken } from '../models/RefreshToken.js';
 import { Settings } from '../models/Settings.js';
 import { User, type UserDoc } from '../models/User.js';
 import type { AuditService } from './AuditService.js';
+import { provisionTenant, type ProvisionTenantInput } from './provisioning.js';
+import type { SignupInput } from '../validation/schemas/auth.js';
 
 const BCRYPT_COST = 12; // BR-32
 const LOCKOUT_THRESHOLD = 5; // BR-33
 const LOCKOUT_MS = 15 * 60_000; // BR-33
 const RESET_TOKEN_MS = 30 * 60_000; // AAD §2 reset flow
+const MONGO_DUPLICATE_KEY = 11000;
 
 /** One string for both unknown-email and wrong-password (AAD §2 — generic). */
 const GENERIC_LOGIN_MESSAGE = 'Invalid email or password.';
@@ -68,6 +75,9 @@ export interface AuthServiceDeps {
   now?: () => Date;
   /** Test seam only — production uses the BR-32 cost 12 default. */
   bcryptCost?: number;
+  /** Google ID-token verifier (google-auth-library). Absent ⇒ Google sign-in
+   *  is not configured on this instance. Injected so unit tests stub identity. */
+  verifyGoogleToken?: GoogleVerifier | undefined;
 }
 
 export interface RequestContext {
@@ -124,6 +134,7 @@ export class AuthService {
   private readonly config: AuthServiceDeps['config'];
   private readonly now: () => Date;
   private readonly bcryptCost: number;
+  private readonly verifyGoogleToken: GoogleVerifier | undefined;
   /** AAD §2 enumeration defense — same cost as real hashes, unknowable input. */
   private readonly dummyHash: string;
 
@@ -133,12 +144,115 @@ export class AuthService {
     this.config = deps.config;
     this.now = deps.now ?? (() => new Date());
     this.bcryptCost = deps.bcryptCost ?? BCRYPT_COST;
+    this.verifyGoogleToken = deps.verifyGoogleToken;
     this.dummyHash = bcrypt.hashSync(randomBytes(32).toString('hex'), this.bcryptCost);
+  }
+
+  /**
+   * Public self-service signup (SaaS): provision a NEW tenant + its first Admin
+   * atomically, then auto-log-in. Email is globally unique — a collision (in
+   * ANY tenant) is a 409. Runs pre-auth, so tenant-owned writes open their own
+   * (brand-new) tenant context inside `provisionTenant`.
+   */
+  async signup(input: SignupInput, ctx: RequestContext = {}): Promise<AuthSession> {
+    const passwordHash = await bcrypt.hash(input.password, this.bcryptCost);
+    const user = await this.provisionAccount({
+      organizationName: input.organizationName,
+      adminName: input.name,
+      adminEmail: input.email,
+      adminPasswordHash: passwordHash,
+      mustChangePassword: false, // they just chose this password
+    });
+
+    // Auto-login the new owner (session issued tenant-scoped).
+    return runWithTenant(user.tenantId, () => {
+      void this.audit.securityEvent({
+        actorId: user._id,
+        entityType: 'SECURITY',
+        entityId: user._id,
+        action: 'LOGIN_SUCCESS',
+        entityLabel: user.email,
+        ip: ctx.ip,
+      });
+      return this.issueSession(user, newFamilyId(), ctx);
+    });
+  }
+
+  /**
+   * Google sign-in (GIS ID-token flow, both "Login" and "Sign up" buttons hit
+   * this). Verify the token, then resolve-or-provision by VERIFIED email — the
+   * global-unique email means one Google identity maps to exactly one account:
+   *
+   *  - email matches an existing account → auto-LINK (attach googleSub) + login;
+   *  - no match → provision a brand-new, password-less workspace they own.
+   *
+   * Unverified Google email is rejected (linking by email requires Google's
+   * `email_verified` assertion — otherwise an attacker could claim any address).
+   */
+  async loginWithGoogle(idToken: string, ctx: RequestContext = {}): Promise<AuthSession> {
+    if (!this.verifyGoogleToken) {
+      throw new AppError('VALIDATION_ERROR', 'Google sign-in is not available.');
+    }
+    const identity = await this.verifyGoogleToken(idToken);
+    if (!identity.emailVerified) {
+      throw new UnauthorizedError('Your Google account email is not verified.');
+    }
+    const email = identity.email.toLowerCase();
+
+    // Resolve across tenants in system context (email is global) — mirrors login.
+    const existing = await runAsSystem(() => User.findOne({ email }));
+    if (existing) {
+      return runWithTenant(existing.tenantId, async () => {
+        if (!existing.isActive) throw new AccountDeactivatedError();
+        // Auto-link the Google identity (idempotent) and clear any lock/failures.
+        await User.updateOne(
+          { _id: existing._id },
+          {
+            $set: { googleSub: identity.sub, lastLoginAt: this.now(), failedLoginCount: 0 },
+            $unset: { lockedUntil: '' },
+          },
+        );
+        void this.audit.securityEvent({
+          actorId: existing._id,
+          entityType: 'SECURITY',
+          entityId: existing._id,
+          action: 'LOGIN_SUCCESS',
+          entityLabel: existing.email,
+          ip: ctx.ip,
+        });
+        return this.issueSession(existing, newFamilyId(), ctx);
+      });
+    }
+
+    // First-time Google user — a fresh workspace they own (no password).
+    let displayName = identity.name?.trim() || email.split('@')[0] || 'New User';
+    if (displayName.length < 2) displayName = 'New User';
+    displayName = displayName.slice(0, 80);
+    const user = await this.provisionAccount({
+      organizationName: `${displayName}'s Workspace`.slice(0, 120),
+      adminName: displayName,
+      adminEmail: email,
+      authProvider: 'GOOGLE',
+      googleSub: identity.sub,
+    });
+    return runWithTenant(user.tenantId, () => {
+      void this.audit.securityEvent({
+        actorId: user._id,
+        entityType: 'SECURITY',
+        entityId: user._id,
+        action: 'LOGIN_SUCCESS',
+        entityLabel: user.email,
+        ip: ctx.ip,
+      });
+      return this.issueSession(user, newFamilyId(), ctx);
+    });
   }
 
   /** Login (UC-01): lockout check → bcrypt verify → counter/events → session. */
   async login(email: string, password: string, ctx: RequestContext = {}): Promise<AuthSession> {
-    const user = await User.findOne({ email }).select('+passwordHash');
+    // Email is GLOBALLY unique (SaaS) — resolve the account across all tenants
+    // in system context, BEFORE any tenant is known.
+    const user = await runAsSystem(() => User.findOne({ email }).select('+passwordHash'));
 
     if (!user) {
       // Unknown email: burn the SAME bcrypt work as the known-email path,
@@ -147,39 +261,50 @@ export class AuthService {
       throw new UnauthorizedError(GENERIC_LOGIN_MESSAGE);
     }
 
-    // BR-33 — by VALUE, before any bcrypt work (AAD §4 order).
-    if (user.lockedUntil && user.lockedUntil > this.now()) {
-      throw new AccountLockedError();
-    }
+    // The tenant is now known — everything that reads/writes tenant-owned data
+    // (failure bookkeeping, audit, session settings) runs tenant-scoped.
+    return runWithTenant(user.tenantId, async () => {
+      // BR-33 — by VALUE, before any bcrypt work (AAD §4 order).
+      if (user.lockedUntil && user.lockedUntil > this.now()) {
+        throw new AccountLockedError();
+      }
 
-    const passwordOk = await bcrypt.compare(password, user.passwordHash);
-    if (!passwordOk) {
-      await this.registerLoginFailure(user, ctx);
-      throw new UnauthorizedError(GENERIC_LOGIN_MESSAGE);
-    }
+      // A Google-only account has no password — treat a password login as a
+      // generic failure, burning the SAME bcrypt work (no timing/wording tell).
+      if (!user.passwordHash) {
+        await bcrypt.compare(password, this.dummyHash);
+        throw new UnauthorizedError(GENERIC_LOGIN_MESSAGE);
+      }
 
-    // AFTER verification — a caller without valid credentials learns nothing
-    // about account status (login's ACCOUNT_DEACTIVATED requires the password).
-    if (!user.isActive) {
-      throw new AccountDeactivatedError();
-    }
+      const passwordOk = await bcrypt.compare(password, user.passwordHash);
+      if (!passwordOk) {
+        await this.registerLoginFailure(user, ctx);
+        throw new UnauthorizedError(GENERIC_LOGIN_MESSAGE);
+      }
 
-    const loginAt = this.now();
-    await User.updateOne(
-      { _id: user._id },
-      { $set: { failedLoginCount: 0, lastLoginAt: loginAt }, $unset: { lockedUntil: '' } },
-    );
+      // AFTER verification — a caller without valid credentials learns nothing
+      // about account status (login's ACCOUNT_DEACTIVATED requires the password).
+      if (!user.isActive) {
+        throw new AccountDeactivatedError();
+      }
 
-    void this.audit.securityEvent({
-      actorId: user._id,
-      entityType: 'SECURITY',
-      entityId: user._id,
-      action: 'LOGIN_SUCCESS',
-      entityLabel: user.email,
-      ip: ctx.ip,
+      const loginAt = this.now();
+      await User.updateOne(
+        { _id: user._id },
+        { $set: { failedLoginCount: 0, lastLoginAt: loginAt }, $unset: { lockedUntil: '' } },
+      );
+
+      void this.audit.securityEvent({
+        actorId: user._id,
+        entityType: 'SECURITY',
+        entityId: user._id,
+        action: 'LOGIN_SUCCESS',
+        entityLabel: user.email,
+        ip: ctx.ip,
+      });
+
+      return this.issueSession(user, newFamilyId(), ctx);
     });
-
-    return this.issueSession(user, newFamilyId(), ctx);
   }
 
   /**
@@ -200,22 +325,28 @@ export class AuthService {
         { familyId: row.familyId, revokedAt: null },
         { $set: { revokedAt: at } },
       );
-      const user = await User.findById(row.userId);
-      void this.audit.securityEvent({
-        actorId: row.userId,
-        entityType: 'SECURITY',
-        entityId: row.userId,
-        action: 'TOKEN_REUSE_DETECTED',
-        entityLabel: user?.email ?? row.userId.toString(),
-        ip: ctx.ip,
-      });
+      const user = await runAsSystem(() => User.findById(row.userId));
+      // The security event is tenant-owned — write it in the actor's tenant
+      // (accounts are permanent per BR-29, so the user is expected to exist).
+      if (user) {
+        await runWithTenant(user.tenantId, () =>
+          this.audit.securityEvent({
+            actorId: row.userId,
+            entityType: 'SECURITY',
+            entityId: row.userId,
+            action: 'TOKEN_REUSE_DETECTED',
+            entityLabel: user.email,
+            ip: ctx.ip,
+          }),
+        );
+      }
       throw new UnauthorizedError();
     }
 
     // PDV-03: expiry by VALUE — the TTL index may not have collected yet.
     if (row.expiresAt <= this.now()) throw new UnauthorizedError();
 
-    const user = await User.findById(row.userId);
+    const user = await runAsSystem(() => User.findById(row.userId));
     if (!user || !user.isActive) {
       await RefreshToken.updateOne({ _id: row._id }, { $set: { revokedAt: this.now() } });
       throw new UnauthorizedError();
@@ -223,7 +354,7 @@ export class AuthService {
 
     // Rotation, fail-closed order (BEV-02): mark FIRST, insert SECOND.
     await RefreshToken.updateOne({ _id: row._id }, { $set: { rotatedAt: this.now() } });
-    return this.issueSession(user, row.familyId, ctx);
+    return runWithTenant(user.tenantId, () => this.issueSession(user, row.familyId, ctx));
   }
 
   /** Logout — idempotent (AAD §3.3): unknown/already-revoked still succeeds. */
@@ -283,30 +414,34 @@ export class AuthService {
     newPassword: string,
     ctx: RequestContext = {},
   ): Promise<void> {
-    const user = await User.findOne({ resetTokenHash: hashToken(rawToken) });
+    // Reset token is globally unique (hash-indexed) — resolve the account in
+    // system context, then complete the reset scoped to its tenant.
+    const user = await runAsSystem(() => User.findOne({ resetTokenHash: hashToken(rawToken) }));
     if (!user || !user.resetTokenExpiresAt || user.resetTokenExpiresAt <= this.now()) {
       throw new UnauthorizedError(RESET_TOKEN_MESSAGE);
     }
 
-    const passwordHash = await bcrypt.hash(newPassword, this.bcryptCost);
-    await User.updateOne(
-      { _id: user._id },
-      {
-        $set: { passwordHash, mustChangePassword: false, failedLoginCount: 0 },
-        $unset: { resetTokenHash: '', resetTokenExpiresAt: '', lockedUntil: '' },
-      },
-    );
-    // Sessions created between issue and completion (old password still worked
-    // until now) die here — the §3.3 matrix row is "all prior sessions".
-    await revokeSessions(user._id, { now: this.now() });
+    await runWithTenant(user.tenantId, async () => {
+      const passwordHash = await bcrypt.hash(newPassword, this.bcryptCost);
+      await User.updateOne(
+        { _id: user._id },
+        {
+          $set: { passwordHash, mustChangePassword: false, failedLoginCount: 0 },
+          $unset: { resetTokenHash: '', resetTokenExpiresAt: '', lockedUntil: '' },
+        },
+      );
+      // Sessions created between issue and completion (old password still worked
+      // until now) die here — the §3.3 matrix row is "all prior sessions".
+      await revokeSessions(user._id, { now: this.now() });
 
-    void this.audit.securityEvent({
-      actorId: user._id,
-      entityType: 'SECURITY',
-      entityId: user._id,
-      action: 'PASSWORD_RESET_COMPLETED',
-      entityLabel: user.email,
-      ip: ctx.ip,
+      void this.audit.securityEvent({
+        actorId: user._id,
+        entityType: 'SECURITY',
+        entityId: user._id,
+        action: 'PASSWORD_RESET_COMPLETED',
+        entityLabel: user.email,
+        ip: ctx.ip,
+      });
     });
   }
 
@@ -322,6 +457,12 @@ export class AuthService {
   ): Promise<void> {
     const user = await User.findById(userId).select('+passwordHash');
     if (!user) throw new UnauthorizedError();
+    if (!user.passwordHash) {
+      throw new AppError(
+        'VALIDATION_ERROR',
+        'This account signs in with Google and has no password to change.',
+      );
+    }
 
     const currentOk = await bcrypt.compare(currentPassword, user.passwordHash);
     if (!currentOk) throw new UnauthorizedError('Current password is incorrect.');
@@ -344,6 +485,68 @@ export class AuthService {
   }
 
   // ── internals ──────────────────────────────────────────────────────────
+
+  /** URL-safe handle from a workspace name; empty input falls back to "workspace". */
+  private slugify(name: string): string {
+    const base = name
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 120);
+    return base || 'workspace';
+  }
+
+  /** A slug not currently taken (the unique index is the real backstop under races). */
+  private async uniqueSlug(name: string): Promise<string> {
+    const base = this.slugify(name);
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const candidate = attempt === 0 ? base : `${base}-${randomBytes(3).toString('hex')}`;
+      const exists = await runAsSystem(() => Organization.exists({ slug: candidate }));
+      if (!exists) return candidate;
+    }
+    return `${base}-${randomBytes(6).toString('hex')}`;
+  }
+
+  /**
+   * Provision a new tenant + its owner inside a transaction and return the owner
+   * (system-context load). Shared by password signup and password-less Google
+   * signup. Email uniqueness is enforced by the index — a race surfaces as
+   * DuplicateEmailError; a slug race is a transient retryable 400.
+   */
+  private async provisionAccount(
+    input: Omit<ProvisionTenantInput, 'slug'>,
+  ): Promise<HydratedDocument<UserDoc>> {
+    const slug = await this.uniqueSlug(input.organizationName);
+    let userId: Types.ObjectId | undefined;
+    const session = await mongoose.startSession();
+    try {
+      await session.withTransaction(
+        async () => {
+          const provisioned = await provisionTenant({ ...input, slug }, { session });
+          userId = provisioned.userId;
+        },
+        { readConcern: { level: 'majority' }, writeConcern: { w: 'majority' } },
+      );
+    } catch (error) {
+      if ((error as { code?: number }).code === MONGO_DUPLICATE_KEY) {
+        const keyPattern = (error as { keyPattern?: Record<string, unknown> }).keyPattern ?? {};
+        if ('email' in keyPattern) throw new DuplicateEmailError(); // one email = one account
+        // Slug race (rare) — a transient collision; the client may retry.
+        throw new AppError(
+          'VALIDATION_ERROR',
+          'Could not create the workspace — please try again.',
+        );
+      }
+      throw error;
+    } finally {
+      await session.endSession();
+    }
+
+    const user = await runAsSystem(() => User.findById(userId));
+    if (!user) throw new UnauthorizedError();
+    return user;
+  }
 
   /** Failure bookkeeping (BR-33): atomic $inc (concurrent failures both count). */
   private async registerLoginFailure(
@@ -404,9 +607,9 @@ export class AuthService {
       this.config.accessTtl,
     );
 
-    // FCM-01: the seeded singleton (BR-41 — boot integrity guarantees it;
-    // the fallback keeps a mid-migration login from crashing).
-    const settings = await Settings.findOne({});
+    // FCM-01: the tenant's settings doc (created at signup/seed; the fallback
+    // keeps a mid-migration login from crashing). Explicitly tenant-filtered.
+    const settings = await Settings.findOne({ tenantId: user.tenantId });
     return {
       accessToken,
       refreshToken,

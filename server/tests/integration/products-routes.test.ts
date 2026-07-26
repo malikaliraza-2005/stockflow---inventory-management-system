@@ -9,6 +9,7 @@ import mongoose, { Types } from 'mongoose';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { useTestTenant } from '../helpers/tenant.js';
 
 import { createApp } from '../../src/app.js';
 import { createLogger } from '../../src/lib/logger.js';
@@ -51,6 +52,8 @@ async function loginAs(app: ReturnType<typeof makeApp>, email: string): Promise<
 function newProduct(overrides: Record<string, unknown> = {}) {
   return { name: 'Widget', categoryId, costPrice: '10.00', sellingPrice: '15.50', ...overrides };
 }
+
+useTestTenant(); // SaaS: run every test in a fixed tenant context
 
 beforeAll(async () => {
   replSet = await MongoMemoryReplSet.create({ replSet: { count: 1 } });

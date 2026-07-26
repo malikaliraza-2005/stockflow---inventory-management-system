@@ -18,7 +18,7 @@ export interface KpiCardProps {
 
 export function KpiCard({ label, value, hint, loading = false }: KpiCardProps) {
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4">
+    <div className="rounded-lg border border-gray-200 bg-white p-4 transition-shadow duration-150 hover:shadow-md">
       <p className="text-sm text-gray-600">{label}</p>
       {loading ? (
         <Skeleton className="mt-2 h-8 w-24" />

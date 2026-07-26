@@ -9,6 +9,7 @@
 import mongoose, { Types } from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { useTestTenant } from '../helpers/tenant.js';
 
 import { AuditLog } from '../../src/models/AuditLog.js';
 import { applyJsonValidators } from '../../src/models/jsonValidators.js';
@@ -30,6 +31,8 @@ function validRefreshToken(overrides: Record<string, unknown> = {}) {
     ...overrides,
   };
 }
+
+useTestTenant(); // SaaS: run every test in a fixed tenant context
 
 beforeAll(async () => {
   mongod = await MongoMemoryServer.create();
@@ -104,9 +107,9 @@ describe('AuditLog model (DBD §2.6 ∎ append-only)', () => {
   it('declares the R-5 filter indexes', async () => {
     const indexes = await AuditLog.collection.indexes();
     const keys = indexes.map((index) => JSON.stringify(index.key));
-    expect(keys).toContain(JSON.stringify({ entityType: 1, createdAt: -1 }));
-    expect(keys).toContain(JSON.stringify({ actorId: 1, createdAt: -1 }));
-    expect(keys).toContain(JSON.stringify({ entityId: 1, createdAt: -1 }));
+    expect(keys).toContain(JSON.stringify({ tenantId: 1, entityType: 1, createdAt: -1 }));
+    expect(keys).toContain(JSON.stringify({ tenantId: 1, actorId: 1, createdAt: -1 }));
+    expect(keys).toContain(JSON.stringify({ tenantId: 1, entityId: 1, createdAt: -1 }));
   });
 
   it('rejects an out-of-catalog action at the Mongoose layer (PDV-01 closed set)', async () => {

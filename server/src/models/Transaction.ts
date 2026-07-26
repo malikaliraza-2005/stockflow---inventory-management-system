@@ -18,6 +18,8 @@
  */
 import { model, Schema, type Types } from 'mongoose';
 
+import { tenantScopePlugin } from './plugins/tenantScope.js';
+
 /** Closed set (PDV-01). INITIAL is system-only — never accepted from clients. */
 export const TRANSACTION_TYPES = ['INITIAL', 'STOCK_IN', 'STOCK_OUT', 'ADJUSTMENT'] as const;
 export type TransactionType = (typeof TRANSACTION_TYPES)[number];
@@ -34,6 +36,8 @@ export const ADJUSTMENT_REASONS = [
 export type AdjustmentReason = (typeof ADJUSTMENT_REASONS)[number];
 
 export interface TransactionDoc {
+  /** Owning tenant (SaaS). Added by the tenantScope plugin; declared here for types. */
+  tenantId: Types.ObjectId;
   productId: Types.ObjectId;
   type: TransactionType;
   quantityChange: number; // signed, ≠ 0 (BR-12)
@@ -61,16 +65,20 @@ const transactionSchema = new Schema<TransactionDoc>(
   { timestamps: { createdAt: true, updatedAt: false }, versionKey: false }, // DES-1: no updatedAt
 );
 
-// DBD §2.4 index set.
-transactionSchema.index({ productId: 1, createdAt: -1 }); // history, reconciliation
-transactionSchema.index({ createdAt: -1 }); // ledger list, dashboard, reports
-transactionSchema.index({ userId: 1, createdAt: -1 });
-transactionSchema.index({ type: 1, createdAt: -1 });
-// F6: the authoritative movement dedup (BR-20, ARB-02). SPARSE so INITIAL /
-// compensation rows (which carry no key, PDV-04) never collide; UNIQUE so a
-// duplicate client key is a hard duplicate-key error the movement transaction
-// catches and re-reads as a replay. Sparse+unique = "unique among documents
-// that HAVE the field" — exactly the movement-replay semantics.
-transactionSchema.index({ idempotencyKey: 1 }, { unique: true, sparse: true });
+transactionSchema.plugin(tenantScopePlugin);
+
+// DBD §2.4 index set — tenant-LEADING (every ledger query filters by tenant first).
+transactionSchema.index({ tenantId: 1, productId: 1, createdAt: -1 }); // history, reconciliation
+transactionSchema.index({ tenantId: 1, createdAt: -1 }); // ledger list, dashboard, reports
+transactionSchema.index({ tenantId: 1, userId: 1, createdAt: -1 });
+transactionSchema.index({ tenantId: 1, type: 1, createdAt: -1 });
+// F6: the authoritative movement dedup (BR-20, ARB-02), now PER-TENANT. A
+// compound "sparse" index would NOT skip key-less INITIAL/compensation rows
+// (tenantId is always present), so use a PARTIAL index: unique among documents
+// that HAVE an idempotencyKey — exactly the movement-replay semantics.
+transactionSchema.index(
+  { tenantId: 1, idempotencyKey: 1 },
+  { unique: true, partialFilterExpression: { idempotencyKey: { $type: 'string' } } },
+);
 
 export const Transaction = model<TransactionDoc>('Transaction', transactionSchema);

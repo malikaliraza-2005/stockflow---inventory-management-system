@@ -32,6 +32,7 @@ import { createUploadController } from './controllers/uploadController.js';
 import { createUsersController } from './controllers/usersController.js';
 import { NotFoundError, ServiceUnavailableError } from './errors/AppError.js';
 import type { Logger } from './lib/logger.js';
+import { createGoogleVerifier, type GoogleVerifier } from './lib/googleVerify.js';
 import { authenticate } from './middleware/authenticate.js';
 import { createAuthorize } from './middleware/authorize.js';
 import { createErrorHandler } from './middleware/errorHandler.js';
@@ -69,6 +70,8 @@ export interface AppEnv {
   JWT_ACCESS_SECRET: string;
   ACCESS_TOKEN_TTL: string;
   REFRESH_TOKEN_TTL: string;
+  /** Google OAuth Web client id — absent ⇒ Google sign-in disabled. */
+  GOOGLE_CLIENT_ID?: string | undefined;
   CORS_ORIGIN: string;
   RATE_LIMIT_GLOBAL_MAX: number;
   RATE_LIMIT_GLOBAL_WINDOW_MS: number;
@@ -92,6 +95,9 @@ export interface AppDeps {
   trustProxyHops?: number;
   /** Seconds advertised in Retry-After while not ready (NFR-20). */
   readyRetryAfterSeconds?: number;
+  /** Test seam: inject a stub Google verifier (no real Google call). Prod omits
+   *  it — the verifier is built from GOOGLE_CLIENT_ID instead. */
+  verifyGoogleToken?: GoogleVerifier | undefined;
 }
 
 export function createApp(deps: AppDeps): Express {
@@ -161,6 +167,11 @@ export function createApp(deps: AppDeps): Express {
 
   // ── services + per-route chain builders (#9/#10/#11 live on routes) ────
   const audit = new AuditService(logger);
+  // Prod builds the real verifier from GOOGLE_CLIENT_ID; tests inject a stub via
+  // deps.verifyGoogleToken. Absent both ⇒ /auth/google returns "not available".
+  const googleVerifier =
+    deps.verifyGoogleToken ??
+    (env.GOOGLE_CLIENT_ID ? createGoogleVerifier(env.GOOGLE_CLIENT_ID) : undefined);
   const authService = new AuthService({
     audit,
     logger,
@@ -169,7 +180,14 @@ export function createApp(deps: AppDeps): Express {
       accessTtl: env.ACCESS_TOKEN_TTL,
       refreshTtl: env.REFRESH_TOKEN_TTL,
     },
+    verifyGoogleToken: googleVerifier,
   });
+  logger.info(
+    { googleSignIn: Boolean(googleVerifier) },
+    googleVerifier
+      ? 'auth: Google sign-in ENABLED'
+      : 'auth: Google sign-in DISABLED (no GOOGLE_CLIENT_ID)',
+  );
   const authenticateMw = authenticate(env.JWT_ACCESS_SECRET);
   // App-scoped authorize: ONE BEV-03 denial window per instance (F2 — its
   // first consumer, the /users router).

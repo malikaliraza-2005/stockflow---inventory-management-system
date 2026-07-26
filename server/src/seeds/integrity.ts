@@ -1,9 +1,18 @@
 /**
- * Boot integrity check — DBD §8 / BEA §8: readiness requires the settings
- * singleton (BR-41) and ≥ 1 active Admin (BR-30). A failure carries the
- * DBD-mandated EXPLICIT REMEDIATION MESSAGE — the operator must know the fix,
- * not just the fact.
+ * Boot integrity check — DBD §8 / BEA §8, adapted for SaaS multi-tenancy.
+ *
+ * In a single-org system this asserted a global settings singleton + ≥ 1 active
+ * Admin. Under multi-tenancy those invariants are PER-TENANT and are guaranteed
+ * atomically at signup (`provisionTenant`), so an EMPTY system (zero tenants,
+ * before anyone signs up) is a perfectly valid, ready state — not a failure.
+ *
+ * What boot still verifies (cheaply, in system context): the system is
+ * COHERENT — if any tenant exists, the per-tenant bootstrap data landed (≥ 1
+ * active Admin and ≥ 1 settings document exist system-wide). A failure carries
+ * the DBD-mandated explicit remediation message.
  */
+import { runAsSystem } from '../lib/tenantContext.js';
+import { Organization } from '../models/Organization.js';
 import { Settings } from '../models/Settings.js';
 import { User } from '../models/User.js';
 
@@ -15,17 +24,24 @@ export class IntegrityError extends Error {
 }
 
 export async function verifyBootIntegrity(): Promise<void> {
-  const [settingsCount, activeAdminCount] = await Promise.all([
-    Settings.countDocuments({}),
-    User.countDocuments({ role: 'ADMIN', isActive: true }), // {role,isActive} index
-  ]);
+  // These read tenant-scoped models with no tenant in scope — system context.
+  const [orgCount, settingsCount, activeAdminCount] = await runAsSystem(() =>
+    Promise.all([
+      Organization.countDocuments({}),
+      Settings.countDocuments({}),
+      User.countDocuments({ role: 'ADMIN', isActive: true }),
+    ]),
+  );
+
+  // Fresh SaaS install — no tenants yet. Valid and ready.
+  if (orgCount === 0) return;
 
   const problems: string[] = [];
   if (settingsCount === 0) {
-    problems.push('settings singleton missing (BR-41)');
+    problems.push('tenants exist but no settings document was found (BR-41)');
   }
   if (activeAdminCount === 0) {
-    problems.push('no active Admin account exists (BR-30)');
+    problems.push('tenants exist but no active Admin account exists (BR-30)');
   }
 
   if (problems.length > 0) {

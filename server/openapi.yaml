@@ -95,6 +95,43 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
 
+  /auth/signup:
+    post:
+      tags: [auth]
+      operationId: signup
+      summary: Public self-service signup — create an organization + first Admin (SaaS)
+      description: >-
+        Provisions a new tenant (organization + its first Admin owner +
+        per-tenant settings + Uncategorized category) atomically, then returns a
+        full session (the owner is logged straight in). Email is globally unique
+        across all tenants — a collision is a 409 DUPLICATE_EMAIL. Strict-limited.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignupRequest'
+      responses:
+        '201':
+          description: >-
+            Workspace created and session established. Also sets the rotating
+            refresh cookie (httpOnly · Secure · SameSite=Strict · Path=/api/v1/auth).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          description: DUPLICATE_EMAIL — that email is already registered (globally unique).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
   /auth/login:
     post:
       tags: [auth]
@@ -130,6 +167,56 @@ paths:
                 $ref: '#/components/schemas/ErrorEnvelope'
         '423':
           description: ACCOUNT_LOCKED — 5 consecutive failures → 15-min lock (BR-33).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /auth/google:
+    post:
+      tags: [auth]
+      operationId: googleAuth
+      summary: Sign in / sign up with Google (GIS ID-token → session)
+      description: >-
+        Verifies a Google Identity Services ID token (google-auth-library) and
+        resolves-or-provisions by VERIFIED email: an existing account is linked
+        (googleSub attached) and logged in; an unknown email provisions a new
+        password-less workspace. Backs both the "Sign in" and "Sign up with
+        Google" buttons. Unverified Google email is rejected (401).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GoogleAuthRequest'
+      responses:
+        '200':
+          description: >-
+            Session established. Also sets the rotating refresh cookie
+            (httpOnly · Secure · SameSite=Strict · Path=/api/v1/auth).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '400':
+          description: >-
+            Missing credential (VALIDATION_ERROR) or Google sign-in not
+            configured on this server.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          description: Invalid Google token, or the Google account email is unverified.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '409':
+          description: DUPLICATE_EMAIL — a provisioning race on the same email.
           content:
             application/json:
               schema:
@@ -1623,6 +1710,30 @@ components:
       description: The two operator roles (SRS §5 matrix).
       enum: [ADMIN, STAFF]
 
+    SignupRequest:
+      type: object
+      description: >-
+        Public self-service signup (SaaS). BR-32 password policy applies (this is
+        the account's first password). email is globally unique across tenants.
+      required: [organizationName, name, email, password]
+      properties:
+        organizationName:
+          type: string
+          minLength: 2
+          maxLength: 120
+        name:
+          type: string
+          minLength: 2
+          maxLength: 80
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          minLength: 10
+          maxLength: 64
+
     LoginRequest:
       type: object
       description: 05 §15.1 — non-empty password only; policy never applied at login (AAD §2).
@@ -1633,6 +1744,15 @@ components:
           format: email
           maxLength: 254
         password:
+          type: string
+          minLength: 1
+
+    GoogleAuthRequest:
+      type: object
+      description: Google Identity Services ID token; verified server-side.
+      required: [idToken]
+      properties:
+        idToken:
           type: string
           minLength: 1
 

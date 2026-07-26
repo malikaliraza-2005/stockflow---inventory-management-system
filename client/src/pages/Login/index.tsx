@@ -5,12 +5,13 @@
  * restores the return-to deep link (SMP §5).
  */
 import { useState, type FormEvent } from 'react';
-import { Navigate, useLocation } from 'react-router-dom';
+import { Link, Navigate, useLocation } from 'react-router-dom';
 
 import { login } from '../../api/auth';
 import { ApiError } from '../../api/client';
 import { AlertBanner } from '../../components/ui/AlertBanner';
 import { FormField, fieldAria } from '../../components/ui/FormField';
+import { GoogleSignInButton } from '../../components/ui/GoogleSignInButton';
 import { Input } from '../../components/ui/Input';
 import { SubmitRow } from '../../components/ui/SubmitRow';
 import { messageFor } from '../../lib/errorMap';
@@ -30,7 +31,7 @@ export default function LoginPage() {
 
   if (isAuthenticated) {
     const from = (location.state as { from?: { pathname: string } } | null)?.from;
-    return <Navigate to={from?.pathname ?? '/'} replace />;
+    return <Navigate to={from?.pathname ?? '/dashboard'} replace />;
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -87,6 +88,13 @@ export default function LoginPage() {
         </FormField>
         <SubmitRow submitLabel="Sign in" loading={loading} />
       </form>
+      <GoogleSignInButton text="signin_with" />
+      <p className="text-sm text-gray-600">
+        New here?{' '}
+        <Link to="/signup" className="font-medium text-brand-600 hover:text-brand-700">
+          Create a workspace
+        </Link>
+      </p>
     </div>
   );
 }

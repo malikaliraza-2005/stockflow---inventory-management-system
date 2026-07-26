@@ -27,6 +27,7 @@ import mongoose, { type HydratedDocument, type Types } from 'mongoose';
 
 import { DuplicateEmailError, LastAdminError, NotFoundError } from '../errors/AppError.js';
 import { escapeRegex, listEnvelope, type ListEnvelope } from '../lib/pagination.js';
+import { requireTenantId } from '../lib/tenantContext.js';
 import { User, type UserDoc } from '../models/User.js';
 import { AuditService } from './AuditService.js';
 import { revokeSessions, type AuthService, type RequestContext } from './AuthService.js';
@@ -34,7 +35,8 @@ import type { UserCreateInput, UserUpdateInput, UsersQuery } from '../validation
 
 const BCRYPT_COST = 12; // BR-32
 const GUARD_COLLECTION = 'appguards';
-const ADMIN_GUARD_ID = 'lastAdminInvariant';
+/** Per-tenant last-admin guard key — `lastAdminInvariant:<tenantId>` (SaaS). */
+const ADMIN_GUARD_PREFIX = 'lastAdminInvariant';
 const MONGO_DUPLICATE_KEY = 11000;
 
 export interface UserServiceDeps {
@@ -254,24 +256,29 @@ export class UserService {
     };
   }
 
-  private guardEnsured = false;
+  /** Per-tenant guard doc: `lastAdminInvariant:<tenantId>` (native site). */
+  private guardId(): string {
+    return `${ADMIN_GUARD_PREFIX}:${requireTenantId().toString()}`;
+  }
 
-  /** Idempotent, non-transactional: the guard doc simply exists. */
+  private readonly guardEnsured = new Set<string>();
+
+  /** Idempotent, non-transactional: the per-tenant guard doc simply exists. */
   private async ensureAdminGuard(): Promise<void> {
-    if (this.guardEnsured) return;
-    const guards = this.guardCollection();
-    await guards.updateOne(
-      { _id: ADMIN_GUARD_ID },
+    const id = this.guardId();
+    if (this.guardEnsured.has(id)) return;
+    await this.guardCollection().updateOne(
+      { _id: id },
       { $setOnInsert: { version: 0 } },
       { upsert: true },
     );
-    this.guardEnsured = true;
+    this.guardEnsured.add(id);
   }
 
-  /** In-transaction touch — concurrent admin-reducers write-conflict here. */
+  /** In-transaction touch — concurrent admin-reducers (same tenant) write-conflict here. */
   private async touchAdminGuard(session: mongoose.ClientSession): Promise<void> {
     await this.guardCollection().updateOne(
-      { _id: ADMIN_GUARD_ID },
+      { _id: this.guardId() },
       { $inc: { version: 1 } },
       { session },
     );

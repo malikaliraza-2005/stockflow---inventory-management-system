@@ -41,6 +41,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/auth/signup': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Public self-service signup — create an organization + first Admin (SaaS)
+     * @description Provisions a new tenant (organization + its first Admin owner + per-tenant settings + Uncategorized category) atomically, then returns a full session (the owner is logged straight in). Email is globally unique across all tenants — a collision is a 409 DUPLICATE_EMAIL. Strict-limited.
+     */
+    post: operations['signup'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/auth/login': {
     parameters: {
       query?: never;
@@ -55,6 +75,26 @@ export interface paths {
      * @description Failure counter and lockout per BR-33; success resets the counter, stamps lastLoginAt, records a security event. Errors stay generic — the password policy is never revealed on this route (AAD §2).
      */
     post: operations['login'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/auth/google': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Sign in / sign up with Google (GIS ID-token → session)
+     * @description Verifies a Google Identity Services ID token (google-auth-library) and resolves-or-provisions by VERIFIED email: an existing account is linked (googleSub attached) and logged in; an unknown email provisions a new password-less workspace. Backs both the "Sign in" and "Sign up with Google" buttons. Unverified Google email is rejected (401).
+     */
+    post: operations['googleAuth'];
     delete?: never;
     options?: never;
     head?: never;
@@ -708,11 +748,23 @@ export interface components {
      * @enum {string}
      */
     Role: 'ADMIN' | 'STAFF';
+    /** @description Public self-service signup (SaaS). BR-32 password policy applies (this is the account's first password). email is globally unique across tenants. */
+    SignupRequest: {
+      organizationName: string;
+      name: string;
+      /** Format: email */
+      email: string;
+      password: string;
+    };
     /** @description 05 §15.1 — non-empty password only; policy never applied at login (AAD §2). */
     LoginRequest: {
       /** Format: email */
       email: string;
       password: string;
+    };
+    /** @description Google Identity Services ID token; verified server-side. */
+    GoogleAuthRequest: {
+      idToken: string;
     };
     /** @description 05 §15.7 — BR-32 policy applies to newPassword. */
     ResetPasswordRequest: {
@@ -1313,6 +1365,41 @@ export interface operations {
       };
     };
   };
+  signup: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['SignupRequest'];
+      };
+    };
+    responses: {
+      /** @description Workspace created and session established. Also sets the rotating refresh cookie (httpOnly · Secure · SameSite=Strict · Path=/api/v1/auth). */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SessionResponse'];
+        };
+      };
+      400: components['responses']['ValidationError'];
+      /** @description DUPLICATE_EMAIL — that email is already registered (globally unique). */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope'];
+        };
+      };
+      429: components['responses']['RateLimited'];
+    };
+  };
   login: {
     parameters: {
       query?: never;
@@ -1347,6 +1434,58 @@ export interface operations {
       };
       /** @description ACCOUNT_LOCKED — 5 consecutive failures → 15-min lock (BR-33). */
       423: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope'];
+        };
+      };
+      429: components['responses']['RateLimited'];
+    };
+  };
+  googleAuth: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['GoogleAuthRequest'];
+      };
+    };
+    responses: {
+      /** @description Session established. Also sets the rotating refresh cookie (httpOnly · Secure · SameSite=Strict · Path=/api/v1/auth). */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SessionResponse'];
+        };
+      };
+      /** @description Missing credential (VALIDATION_ERROR) or Google sign-in not configured on this server. */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope'];
+        };
+      };
+      /** @description Invalid Google token, or the Google account email is unverified. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope'];
+        };
+      };
+      /** @description DUPLICATE_EMAIL — a provisioning race on the same email. */
+      409: {
         headers: {
           [name: string]: unknown;
         };

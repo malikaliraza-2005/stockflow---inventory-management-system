@@ -14,6 +14,7 @@ import { selectSidebarCollapsed, useUiStore } from '../../stores/uiStore';
 import { selectUser, useAuthStore } from '../../stores/authStore';
 import type { Capability } from '../../lib/permissions.generated';
 import { Button } from '../ui/Button';
+import { Logo } from '../ui/Logo';
 
 interface NavEntry {
   to: string;
@@ -23,7 +24,7 @@ interface NavEntry {
 
 /** SMP §3 navigation model — capability keys gate visibility (FD-3). */
 const NAV_ENTRIES: NavEntry[] = [
-  { to: '/', label: 'Dashboard', capability: 'dashboard.view' },
+  { to: '/dashboard', label: 'Dashboard', capability: 'dashboard.view' },
   { to: '/products', label: 'Products', capability: 'products.view' },
   { to: '/scanner', label: 'Scanner', capability: 'movements.stockInOut' },
   { to: '/categories', label: 'Categories', capability: 'categories.view' },
@@ -46,7 +47,9 @@ export function AppShell() {
         aria-label="Primary navigation"
       >
         <div className="flex h-14 items-center justify-between px-4">
-          {!collapsed && <span className="font-semibold text-brand-700">StockFlow</span>}
+          {!collapsed && (
+            <Logo markClassName="h-6 w-6" wordmarkClassName="font-semibold text-brand-700" />
+          )}
           <button
             type="button"
             aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
@@ -61,7 +64,7 @@ export function AppShell() {
             <NavLink
               key={entry.to}
               to={entry.to}
-              end={entry.to === '/'}
+              end={entry.to === '/dashboard'}
               className={({ isActive }) =>
                 `block rounded-md px-3 py-2 text-sm ${
                   isActive
@@ -78,7 +81,11 @@ export function AppShell() {
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-14 items-center justify-between border-b border-gray-200 bg-white px-4">
-          <span className="font-semibold text-brand-700 md:hidden">StockFlow</span>
+          <Logo
+            className="md:hidden"
+            markClassName="h-6 w-6"
+            wordmarkClassName="font-semibold text-brand-700"
+          />
           <div className="ml-auto flex items-center gap-3">
             <NavLink to="/profile" className="text-sm text-gray-700 hover:underline">
               {user?.name}

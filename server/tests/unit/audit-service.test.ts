@@ -6,6 +6,7 @@
 import mongoose, { Types } from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { useTestTenant } from '../helpers/tenant.js';
 
 import { createLogger } from '../../src/lib/logger.js';
 import { AuditLog } from '../../src/models/AuditLog.js';
@@ -20,6 +21,8 @@ const logger = createLogger('warn', {
 });
 const service = new AuditService(logger);
 const actorId = new Types.ObjectId();
+
+useTestTenant(); // SaaS: run every test in a fixed tenant context
 
 beforeAll(async () => {
   mongod = await MongoMemoryServer.create();

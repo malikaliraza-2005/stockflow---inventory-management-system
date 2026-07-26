@@ -9,6 +9,7 @@ import bcrypt from 'bcrypt';
 import mongoose, { Types } from 'mongoose';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { useTestTenant } from '../helpers/tenant.js';
 
 import { DuplicateEmailError, LastAdminError, NotFoundError } from '../../src/errors/AppError.js';
 import { createLogger } from '../../src/lib/logger.js';
@@ -61,6 +62,8 @@ async function seedUser(overrides: Partial<Record<string, unknown>> = {}) {
 function query(overrides: Record<string, unknown> = {}) {
   return usersQuerySchema.parse(overrides);
 }
+
+useTestTenant(); // SaaS: run every test in a fixed tenant context
 
 beforeAll(async () => {
   replSet = await MongoMemoryReplSet.create({ replSet: { count: 1 } });

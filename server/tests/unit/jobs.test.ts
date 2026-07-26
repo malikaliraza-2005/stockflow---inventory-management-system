@@ -7,6 +7,7 @@
 import mongoose, { Types } from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { useTestTenant } from '../helpers/tenant.js';
 
 import { acquireLease, releaseLease, withLease } from '../../src/jobs/lease.js';
 import { runOrphanSweep } from '../../src/jobs/orphanSweep.js';
@@ -48,6 +49,8 @@ async function ledgerRow(productId: Types.ObjectId, quantityChange: number) {
     userId: new Types.ObjectId(),
   });
 }
+
+useTestTenant(); // SaaS: run every test in a fixed tenant context
 
 beforeAll(async () => {
   mongod = await MongoMemoryServer.create();

@@ -14,20 +14,34 @@ import { AppShell } from './components/layout/AppShell';
 import { ErrorFallback } from './components/layout/ErrorFallback';
 import { ForcePasswordChangeGate } from './components/layout/ForcePasswordChange';
 import { PublicLayout } from './components/layout/PublicLayout';
+import { MarketingLayout } from './components/layout/MarketingLayout';
+import { RequireAnon } from './components/layout/RequireAnon';
 import { RequireAuth } from './components/layout/RequireAuth';
 import { RequireRole } from './components/layout/RequireRole';
 // Eager auth chunk — smallest first paint (NFR-03)
+import Landing from './pages/Landing';
 import LoginPage from './pages/Login';
 import ResetPasswordPage from './pages/ResetPassword';
+import SignupPage from './pages/Signup';
 
 export const router = createBrowserRouter([
   {
     errorElement: <ErrorFallback />, // resets on navigation (ERR Issue 3)
     children: [
       {
+        element: <RequireAnon />,
+        children: [
+          {
+            element: <MarketingLayout />,
+            children: [{ index: true, element: <Landing /> }],
+          },
+        ],
+      },
+      {
         element: <PublicLayout />,
         children: [
           { path: '/login', element: <LoginPage /> },
+          { path: '/signup', element: <SignupPage /> },
           { path: '/reset-password', element: <ResetPasswordPage /> },
         ],
       },
@@ -41,7 +55,7 @@ export const router = createBrowserRouter([
                 element: <AppShell />,
                 children: [
                   {
-                    index: true,
+                    path: 'dashboard',
                     lazy: async () => ({
                       Component: (await import('./pages/Dashboard')).default,
                     }),

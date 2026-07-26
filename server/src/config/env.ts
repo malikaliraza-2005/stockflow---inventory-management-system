@@ -31,6 +31,11 @@ const envSchema = z
     ACCESS_TOKEN_TTL: z.string().regex(DURATION_PATTERN, DURATION_MESSAGE).default('15m'),
     REFRESH_TOKEN_TTL: z.string().regex(DURATION_PATTERN, DURATION_MESSAGE).default('7d'),
 
+    // Google sign-in (AAD) — the OAuth 2.0 Web client id (…apps.googleusercontent.com).
+    // Public by nature, not a secret. Absent ⇒ POST /auth/google returns
+    // "not available"; email/password auth is unaffected.
+    GOOGLE_CLIENT_ID: z.string().optional(),
+
     // HTTP
     CORS_ORIGIN: z.url({ error: 'must be the exact frontend origin URL (DEP §8)' }),
     TRUST_PROXY_HOPS: z.coerce

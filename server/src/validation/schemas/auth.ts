@@ -17,7 +17,24 @@
  */
 import { z } from 'zod';
 
+import { COMMON_PASSWORDS } from '../commonPasswords.js';
 import { email, password } from '../primitives.js';
+
+/**
+ * Signup password — SAME BR-32 rules as the shared `password` primitive, but
+ * each rule carries its own message so the signup form can tell the user
+ * exactly what to fix. MIRROR: client/src/lib/validation/schemas/auth.ts.
+ */
+export const signupPassword = z
+  .string('Enter a password')
+  .min(10, 'Password must be at least 10 characters long')
+  .max(64, 'Password must be 64 characters or fewer')
+  .regex(/[A-Za-z]/, 'Password must include at least one letter')
+  .regex(/\d/, 'Password must include at least one number')
+  .refine(
+    (value) => !COMMON_PASSWORDS.has(value.toLowerCase()),
+    'That password is too common — please choose something less predictable',
+  );
 
 /** Auth-specific en-default strings (VAL §9 — clients key off code + field). */
 export const authMessages = {
@@ -26,6 +43,27 @@ export const authMessages = {
   tokenRequired: 'Reset link is invalid',
   newPasswordSame: 'New password must be different from your current password',
 } as const;
+
+/**
+ * POST /auth/signup (SaaS) — public self-service tenant creation. Creates an
+ * organization + its first Admin atomically, then auto-logs-in. The password
+ * DOES apply the full BR-32 policy here (unlike login) — this is the account's
+ * first password, chosen by the user (no forced change afterwards).
+ */
+export const signupSchema = z.object({
+  organizationName: z
+    .string('Enter your organization name')
+    .trim()
+    .min(2, 'Organization name must be at least 2 characters')
+    .max(120, 'Organization name must be 120 characters or fewer'),
+  name: z
+    .string('Enter your name')
+    .trim()
+    .min(2, 'Your name must be at least 2 characters')
+    .max(80, 'Your name must be 80 characters or fewer'),
+  email,
+  password: signupPassword,
+});
 
 /** POST /auth/login — §15.1. Generic constraints only; policy never revealed. */
 export const loginSchema = z.object({
@@ -57,6 +95,15 @@ export const changePasswordSchema = z
     path: ['newPassword'],
   });
 
+/** POST /auth/google — the GIS ID-token the browser obtained from Google. The
+ *  token's authenticity is verified by the service (google-auth-library), not
+ *  here; the schema only rejects a structurally absent credential. */
+export const googleAuthSchema = z.object({
+  idToken: z.string('Missing Google credential').min(1, 'Missing Google credential'),
+});
+
+export type SignupInput = z.infer<typeof signupSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+export type GoogleAuthInput = z.infer<typeof googleAuthSchema>;
