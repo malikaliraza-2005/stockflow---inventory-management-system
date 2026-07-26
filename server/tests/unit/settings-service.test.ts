@@ -13,10 +13,13 @@ import { AuditLog } from '../../src/models/AuditLog.js';
 import { Settings } from '../../src/models/Settings.js';
 import { AuditService } from '../../src/services/AuditService.js';
 import { SettingsService } from '../../src/services/SettingsService.js';
+import { useTestTenant } from '../helpers/tenant.js';
 
 let mongod: MongoMemoryServer;
 const logger = createLogger('error', { write: () => undefined });
 const actorId = new Types.ObjectId();
+
+useTestTenant(); // SaaS: run every test in a fixed tenant context
 
 function makeService(): SettingsService {
   return new SettingsService({ audit: new AuditService(logger) });

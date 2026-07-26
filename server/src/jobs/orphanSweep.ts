@@ -11,6 +11,7 @@
  */
 import type { CloudinaryClient } from '../lib/cloudinary.js';
 import type { Logger } from '../lib/logger.js';
+import { runAsSystem } from '../lib/tenantContext.js';
 import { Product } from '../models/Product.js';
 import { UPLOAD_FOLDER } from '../services/UploadService.js';
 
@@ -58,11 +59,14 @@ export async function runOrphanSweep(deps: OrphanSweepDeps): Promise<SweepReport
   return { listed: assets.length, referenced: referenced.size, destroyed };
 }
 
-/** Every publicId currently referenced by a product image. */
+/** Every publicId currently referenced by a product image (across ALL tenants —
+ *  the Cloudinary folder is shared, publicIds are globally unique). */
 async function referencedPublicIds(): Promise<Set<string>> {
-  const products = await Product.find({ 'images.0': { $exists: true } })
-    .select('images.publicId')
-    .lean();
+  const products = await runAsSystem(() =>
+    Product.find({ 'images.0': { $exists: true } })
+      .select('images.publicId')
+      .lean(),
+  );
   const referenced = new Set<string>();
   for (const product of products) {
     for (const image of product.images ?? []) referenced.add(image.publicId);

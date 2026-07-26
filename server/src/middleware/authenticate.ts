@@ -16,6 +16,7 @@ import type { RequestHandler } from 'express';
 
 import { AccountDeactivatedError, ForbiddenError, UnauthorizedError } from '../errors/AppError.js';
 import { asyncHandler } from '../lib/asyncHandler.js';
+import { runAsSystem, runWithTenant } from '../lib/tenantContext.js';
 import { verifyAccessToken } from '../lib/tokens.js';
 import { User } from '../models/User.js';
 
@@ -38,7 +39,9 @@ export function authenticate(accessSecret: string): RequestHandler {
       throw new UnauthorizedError(); // tampered/expired/forged — all the same 401
     }
 
-    const user = await User.findById(sub);
+    // The user is resolved by _id BEFORE any tenant is known — a system-context
+    // point-read. Its tenant then scopes the ENTIRE downstream chain.
+    const user = await runAsSystem(() => User.findById(sub));
     if (!user) throw new UnauthorizedError();
     if (!user.isActive) throw new AccountDeactivatedError(); // EC-17: immediate
 
@@ -51,6 +54,12 @@ export function authenticate(accessSecret: string): RequestHandler {
     }
 
     req.user = user;
-    next();
+    // Open the tenant context for the rest of the pipeline (SaaS isolation):
+    // every downstream model read/write is now scoped to this user's tenant.
+    // `next()` runs synchronously inside the context, establishing it for the
+    // whole downstream chain; the returned promise is intentionally not awaited.
+    void runWithTenant(user.tenantId, () => {
+      next();
+    });
   });
 }

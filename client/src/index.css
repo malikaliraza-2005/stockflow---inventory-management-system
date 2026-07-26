@@ -7,12 +7,29 @@
 @import 'tailwindcss';
 
 @theme {
-  /* Brand */
-  --color-brand-50: #eef4ff;
-  --color-brand-100: #dce7fd;
-  --color-brand-500: #2f5fe0;
-  --color-brand-600: #2450c4;
-  --color-brand-700: #1d419e;
+  /* Brand — violet, full 50→900 ramp (distinct from stock semantics) */
+  --color-brand-50: #f5f3ff;
+  --color-brand-100: #ede9fe;
+  --color-brand-200: #ddd6fe;
+  --color-brand-300: #c4b5fd;
+  --color-brand-400: #a78bfa;
+  --color-brand-500: #8b5cf6;
+  --color-brand-600: #7c3aed; /* primary action / focus ring */
+  --color-brand-700: #6d28d9; /* wordmark / headings */
+  --color-brand-800: #5b21b6;
+  --color-brand-900: #4c1d95;
+
+  /* Neutral — explicit slate ramp (migrate gray-* → neutral-* incrementally) */
+  --color-neutral-50: #f8fafc;
+  --color-neutral-100: #f1f5f9;
+  --color-neutral-200: #e2e8f0;
+  --color-neutral-300: #cbd5e1;
+  --color-neutral-400: #94a3b8;
+  --color-neutral-500: #64748b;
+  --color-neutral-600: #475569;
+  --color-neutral-700: #334155;
+  --color-neutral-800: #1e293b;
+  --color-neutral-900: #0f172a;
 
   /* Semantic — mapped to stock states (FEA §7) */
   --color-success-100: #dcf5e7;
@@ -21,6 +38,12 @@
   --color-warning-700: #a16207; /* LOW_STOCK */
   --color-danger-100: #fde4e1;
   --color-danger-600: #dc2626; /* OUT_OF_STOCK / destructive */
+  --color-danger-700: #b91c1c; /* destructive hover */
+
+  /* Elevation — soft, layered shadows for a premium surface feel */
+  --shadow-card: 0 1px 2px 0 rgb(15 23 42 / 0.04), 0 1px 3px 0 rgb(15 23 42 / 0.06);
+  --shadow-soft: 0 6px 20px -6px rgb(15 23 42 / 0.12);
+  --shadow-pop: 0 12px 32px -12px rgb(15 23 42 / 0.28);
 
   /* Breakpoints (NFR-36) */
   --breakpoint-xs: 360px;
@@ -41,6 +64,41 @@
       'Segoe UI',
       Roboto,
       sans-serif; /* FD-5: system stack, no self-hosted fonts */
+    -webkit-font-smoothing: antialiased; /* crisper text — premium feel */
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    color: var(--color-neutral-800);
+    background-color: var(--color-neutral-50);
+  }
+}
+
+/* Subtle entrance motion for overlays/dialogs (WIR §0.3 — decorative only) */
+@layer utilities {
+  @keyframes overlay-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes dialog-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  .animate-overlay-in {
+    animation: overlay-in 0.15s ease-out;
+  }
+  .animate-dialog-in {
+    animation: dialog-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   }
 }
 

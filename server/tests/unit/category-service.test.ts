@@ -10,6 +10,7 @@
 import mongoose, { Types } from 'mongoose';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { TEST_TENANT_ID, useTestTenant } from '../helpers/tenant.js';
 
 import { CategoryInUseError, NotFoundError, ValidationError } from '../../src/errors/AppError.js';
 import { createLogger } from '../../src/lib/logger.js';
@@ -40,6 +41,7 @@ function products() {
 
 async function assignProduct(categoryId: Types.ObjectId, isArchived = false) {
   await products().insertOne({
+    tenantId: TEST_TENANT_ID, // SaaS: native insert must carry the tenant
     categoryId,
     isArchived,
     sku: `SKU-${new Types.ObjectId().toHexString()}`,
@@ -49,6 +51,8 @@ async function assignProduct(categoryId: Types.ObjectId, isArchived = false) {
 async function seedUncategorized() {
   return Category.create({ name: 'Uncategorized', isSystem: true });
 }
+
+useTestTenant(); // SaaS: run every test in a fixed tenant context
 
 beforeAll(async () => {
   replSet = await MongoMemoryReplSet.create({ replSet: { count: 1 } });

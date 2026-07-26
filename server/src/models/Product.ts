@@ -17,6 +17,8 @@
  */
 import { model, Schema, type Types } from 'mongoose';
 
+import { tenantScopePlugin } from './plugins/tenantScope.js';
+
 export interface ProductImage {
   publicId: string;
   url: string;
@@ -31,6 +33,8 @@ export interface ProductSupplier {
 }
 
 export interface ProductDoc {
+  /** Owning tenant (SaaS). Added by the tenantScope plugin; declared here for types. */
+  tenantId: Types.ObjectId;
   name: string;
   sku: string;
   barcode?: string;
@@ -86,11 +90,19 @@ const productSchema = new Schema<ProductDoc>(
   { timestamps: true, versionKey: false },
 );
 
-// DBD §2.3 index set — each pinned to the query it serves (SCA-02, no COLLSCAN):
-productSchema.index({ sku: 1 }, { unique: true }); // lookup SKU-fallback + duplicate guard
-productSchema.index({ barcode: 1 }, { unique: true, sparse: true }); // lookup barcode-primary
-productSchema.index({ categoryId: 1, isArchived: 1, createdAt: -1 }); // category lists + refs (prefix)
-productSchema.index({ isArchived: 1, quantity: 1 }); // low/out-of-stock + dashboard counts
-productSchema.index({ isArchived: 1, createdAt: -1 }); // default list sort
+productSchema.plugin(tenantScopePlugin);
+
+// DBD §2.3 index set — now tenant-LEADING (every query filters by tenant first).
+// SKU / barcode uniqueness is PER-TENANT (SCA-02, no COLLSCAN):
+productSchema.index({ tenantId: 1, sku: 1 }, { unique: true }); // lookup SKU-fallback + duplicate guard
+// A compound "sparse" index would NOT skip null barcodes (tenantId is always
+// present), so use a partial index: unique only among docs that HAVE a barcode.
+productSchema.index(
+  { tenantId: 1, barcode: 1 },
+  { unique: true, partialFilterExpression: { barcode: { $type: 'string' } } }, // lookup barcode-primary
+);
+productSchema.index({ tenantId: 1, categoryId: 1, isArchived: 1, createdAt: -1 }); // category lists + refs
+productSchema.index({ tenantId: 1, isArchived: 1, quantity: 1 }); // low/out-of-stock + dashboard counts
+productSchema.index({ tenantId: 1, isArchived: 1, createdAt: -1 }); // default list sort
 
 export const Product = model<ProductDoc>('Product', productSchema);

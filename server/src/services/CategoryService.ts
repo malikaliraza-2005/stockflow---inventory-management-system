@@ -30,6 +30,7 @@ import mongoose, { type HydratedDocument, type Types } from 'mongoose';
 
 import { CategoryInUseError, NotFoundError, ValidationError } from '../errors/AppError.js';
 import { listEnvelope, type ListEnvelope } from '../lib/pagination.js';
+import { requireTenantId } from '../lib/tenantContext.js';
 import { Category, CATEGORY_NAME_COLLATION, type CategoryDoc } from '../models/Category.js';
 import { AuditService } from './AuditService.js';
 import type { RequestContext } from './AuthService.js';
@@ -200,7 +201,8 @@ export class CategoryService {
               ]);
             }
             await products.updateMany(
-              { categoryId: categoryObjId },
+              // Native site: scope by tenant by hand (plugin can't see this).
+              { tenantId: requireTenantId(), categoryId: categoryObjId },
               { $set: { categoryId: targetId } },
               { session },
             );
@@ -208,7 +210,7 @@ export class CategoryService {
 
           // The atomic BR-27 gate: any reference still standing blocks the delete.
           const remaining = await products.countDocuments(
-            { categoryId: categoryObjId },
+            { tenantId: requireTenantId(), categoryId: categoryObjId },
             { session },
           );
           if (remaining > 0) throw new CategoryInUseError();
@@ -242,7 +244,8 @@ export class CategoryService {
     if (ids.length === 0) return counts;
     const grouped = await this.productsCollection()
       .aggregate<{ _id: Types.ObjectId; n: number }>([
-        { $match: { categoryId: { $in: ids } } },
+        // Native site: tenant $match by hand (plugin can't see this aggregation).
+        { $match: { tenantId: requireTenantId(), categoryId: { $in: ids } } },
         { $group: { _id: '$categoryId', n: { $sum: 1 } } },
       ])
       .toArray();

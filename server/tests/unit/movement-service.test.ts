@@ -16,6 +16,7 @@ import { randomUUID } from 'node:crypto';
 import mongoose, { Types, type HydratedDocument } from 'mongoose';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { useTestTenant } from '../helpers/tenant.js';
 
 import {
   IdempotencyConflictError,
@@ -72,6 +73,8 @@ async function makeProduct(quantity: number): Promise<HydratedDocument<ProductDo
 function record(service: MovementService, input: MovementInput, key = randomUUID()) {
   return service.recordMovement({ idempotencyKey: key, input, actorId });
 }
+
+useTestTenant(); // SaaS: run every test in a fixed tenant context
 
 beforeAll(async () => {
   replSet = await MongoMemoryReplSet.create({ replSet: { count: 1 } });

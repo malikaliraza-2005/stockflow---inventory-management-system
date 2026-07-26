@@ -32,19 +32,25 @@ import { USER_ROLES } from './User.js';
 const usersValidator = {
   $jsonSchema: {
     bsonType: 'object',
+    // `passwordHash` is NOT required — Google-only accounts have none. It is
+    // still validated (minLength 1) WHEN present. `authProvider` is optional at
+    // this layer so updates to pre-provider documents can never be rejected.
     required: [
+      'tenantId',
       'name',
       'email',
-      'passwordHash',
       'role',
       'isActive',
       'mustChangePassword',
       'failedLoginCount',
     ],
     properties: {
+      tenantId: { bsonType: 'objectId' }, // SaaS isolation (defense-in-depth)
       name: { bsonType: 'string', minLength: 2, maxLength: 80 },
       email: { bsonType: 'string', minLength: 3, maxLength: 254 },
       passwordHash: { bsonType: 'string', minLength: 1 },
+      authProvider: { enum: ['LOCAL', 'GOOGLE'] },
+      googleSub: { bsonType: 'string', minLength: 1 }, // one Google identity = one account
       role: { enum: [...USER_ROLES] },
       isActive: { bsonType: 'bool' },
       mustChangePassword: { bsonType: 'bool' },
@@ -79,10 +85,11 @@ const refreshTokensValidator = {
 const auditLogsValidator = {
   $jsonSchema: {
     bsonType: 'object',
-    required: ['actorId', 'entityType', 'action', 'entityLabel', 'createdAt'],
+    required: ['tenantId', 'actorId', 'entityType', 'action', 'entityLabel', 'createdAt'],
     // DES-1 / DBD §6.3: reject the very presence of `updatedAt`.
     not: { required: ['updatedAt'] },
     properties: {
+      tenantId: { bsonType: 'objectId' }, // SaaS isolation (defense-in-depth)
       actorId: { bsonType: 'objectId' },
       entityType: { enum: [...AUDIT_ENTITY_TYPES] },
       entityId: { bsonType: 'objectId' },
@@ -111,6 +118,7 @@ const productsValidator = {
   $jsonSchema: {
     bsonType: 'object',
     required: [
+      'tenantId',
       'name',
       'sku',
       'categoryId',
@@ -122,6 +130,7 @@ const productsValidator = {
       'version',
     ],
     properties: {
+      tenantId: { bsonType: 'objectId' }, // SaaS isolation (defense-in-depth)
       name: { bsonType: 'string', minLength: 2, maxLength: 120 },
       sku: { bsonType: 'string', minLength: 3, maxLength: 32 },
       barcode: { bsonType: 'string', minLength: 1, maxLength: 64 }, // PDV-04 (sparse unique)
@@ -162,12 +171,13 @@ const countersValidator = {
   },
 };
 
-/** DBD §2.7 — `settings` (F11). Seeded singleton (BR-41). */
+/** DBD §2.7 — `settings` (F11). One document PER TENANT (SaaS). */
 const settingsValidator = {
   $jsonSchema: {
     bsonType: 'object',
-    required: ['currency', 'defaultLowStockThreshold', 'movementWarningThreshold'],
+    required: ['tenantId', 'currency', 'defaultLowStockThreshold', 'movementWarningThreshold'],
     properties: {
+      tenantId: { bsonType: 'objectId' }, // SaaS isolation (defense-in-depth)
       currency: { bsonType: 'string', minLength: 3, maxLength: 3 }, // ISO 4217
       defaultLowStockThreshold: { bsonType: 'int', minimum: 0 },
       movementWarningThreshold: { bsonType: 'int', minimum: 1 },
@@ -186,9 +196,18 @@ const settingsValidator = {
 const transactionsValidator = {
   $jsonSchema: {
     bsonType: 'object',
-    required: ['productId', 'type', 'quantityChange', 'quantityAfter', 'userId', 'createdAt'],
+    required: [
+      'tenantId',
+      'productId',
+      'type',
+      'quantityChange',
+      'quantityAfter',
+      'userId',
+      'createdAt',
+    ],
     not: { required: ['updatedAt'] }, // DES-1: append-only, never edited
     properties: {
+      tenantId: { bsonType: 'objectId' }, // SaaS isolation (defense-in-depth)
       productId: { bsonType: 'objectId' },
       type: { enum: [...TRANSACTION_TYPES] }, // closed set (PDV-01)
       quantityChange: { bsonType: 'int' }, // signed; ≠ 0 is service-enforced (BR-12)

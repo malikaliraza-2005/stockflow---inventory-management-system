@@ -32,11 +32,14 @@ import { AuditService } from '../../src/services/AuditService.js';
 import { MovementService } from '../../src/services/MovementService.js';
 import { ProductService } from '../../src/services/ProductService.js';
 import { productsQuerySchema } from '../../src/validation/schemas/products.js';
+import { useTestTenant } from '../helpers/tenant.js';
 
 let replSet: MongoMemoryReplSet;
 const logger = createLogger('error', { write: () => undefined });
 const actorId = new Types.ObjectId();
 let categoryId: string;
+
+useTestTenant(); // SaaS: run every test in a fixed tenant context
 
 function makeService(): ProductService {
   const audit = new AuditService(logger);

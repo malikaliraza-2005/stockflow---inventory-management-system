@@ -9,6 +9,7 @@ import mongoose, { Types } from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { useTestTenant } from '../helpers/tenant.js';
 
 import { createLogger } from '../../src/lib/logger.js';
 import { signAccessToken } from '../../src/lib/tokens.js';
@@ -62,6 +63,8 @@ async function createUser(overrides: Partial<Record<string, unknown>> = {}) {
     ...overrides,
   });
 }
+
+useTestTenant(); // SaaS: run every test in a fixed tenant context
 
 beforeAll(async () => {
   mongod = await MongoMemoryServer.create();

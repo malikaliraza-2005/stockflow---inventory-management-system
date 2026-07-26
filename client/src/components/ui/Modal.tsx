@@ -52,7 +52,7 @@ export function Modal({
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-0 md:p-4"
+      className="fixed inset-0 z-40 flex animate-overlay-in items-center justify-center bg-neutral-900/50 p-0 backdrop-blur-sm md:p-4"
       onMouseDown={(e) => {
         if (dismissOnOverlay && e.target === e.currentTarget) onClose();
       }}
@@ -62,19 +62,19 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className={`flex h-full w-full flex-col bg-white md:h-auto md:rounded-lg ${
+        className={`flex h-full w-full animate-dialog-in flex-col bg-white shadow-pop md:h-auto md:rounded-xl ${
           size === 'sm' ? 'md:max-w-sm' : 'md:max-w-lg'
         }`}
       >
-        <div className="flex items-center justify-between border-b border-gray-200 px-5 py-3">
-          <h2 id={titleId} className="text-lg font-medium text-gray-900">
+        <div className="flex items-center justify-between border-b border-neutral-200 px-5 py-3.5">
+          <h2 id={titleId} className="text-base font-semibold text-neutral-900">
             {title}
           </h2>
           <button
             type="button"
             aria-label="Close dialog"
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600"
+            className="-mr-1 rounded-md p-1.5 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-600"
           >
             ×
           </button>

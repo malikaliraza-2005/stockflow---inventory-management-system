@@ -7,6 +7,7 @@
 import mongoose, { Types } from 'mongoose';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { useTestTenant } from '../helpers/tenant.js';
 
 import { ValidationError } from '../../src/errors/AppError.js';
 import type { CloudinaryClient } from '../../src/lib/cloudinary.js';
@@ -64,6 +65,8 @@ function baseInput(overrides: Record<string, unknown> = {}) {
     ...overrides,
   } as Parameters<ProductService['create']>[0];
 }
+
+useTestTenant(); // SaaS: run every test in a fixed tenant context
 
 beforeAll(async () => {
   replSet = await MongoMemoryReplSet.create({ replSet: { count: 1 } });

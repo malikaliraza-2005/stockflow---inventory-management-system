@@ -1,19 +1,26 @@
 /**
- * Task 0.7 — DBD §8 seed + integrity, on ephemeral replica-set Mongo (TST §5:
- * "seed idempotency is itself a test"; this suite exercises the PRODUCTION
- * seed module, not a test double).
+ * Task 0.7 (SaaS-adapted) — the seed + boot integrity, on ephemeral replica-set
+ * Mongo (TST §5: "seed idempotency is itself a test"; this exercises the
+ * PRODUCTION seed module). Under multi-tenancy the seed provisions ONE bootstrap
+ * tenant (org + first Admin + settings + Uncategorized) idempotently, and boot
+ * integrity is a PER-TENANT coherence check (an empty system is valid/ready).
+ *
+ * Direct model reads run in SYSTEM context (they span the whole DB); the one
+ * per-tenant uniqueness assertion switches into the seeded tenant explicitly.
  */
 import bcrypt from 'bcrypt';
 import mongoose from 'mongoose';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createLogger } from '../../src/lib/logger.js';
 import { Category, CATEGORY_NAME_COLLATION } from '../../src/models/Category.js';
+import { Organization } from '../../src/models/Organization.js';
 import { Settings } from '../../src/models/Settings.js';
 import { User } from '../../src/models/User.js';
 import { IntegrityError, verifyBootIntegrity } from '../../src/seeds/integrity.js';
 import { runSeed, UNCATEGORIZED_NAME } from '../../src/seeds/index.js';
+import { enterSystemContextForTesting, enterTenantContextForTesting } from '../helpers/tenant.js';
 
 let replSet: MongoMemoryReplSet;
 const logger = createLogger('info', { write: () => undefined });
@@ -33,12 +40,23 @@ afterAll(async () => {
   if (replSet) await replSet.stop();
 });
 
-afterEach(async () => {
-  await Promise.all([User.deleteMany({}), Settings.deleteMany({}), Category.deleteMany({})]);
+// Direct reads/writes in these specs span the whole DB — system context.
+beforeEach(() => {
+  enterSystemContextForTesting();
 });
 
-describe('runSeed (DBD §8 — idempotent, never destructive)', () => {
-  it('creates exactly the three seed items on first run', async () => {
+afterEach(async () => {
+  enterSystemContextForTesting(); // a per-tenant test may have switched context
+  await Promise.all([
+    User.deleteMany({}),
+    Settings.deleteMany({}),
+    Category.deleteMany({}),
+    Organization.deleteMany({}),
+  ]);
+});
+
+describe('runSeed (DBD §8 — idempotent bootstrap tenant, never destructive)', () => {
+  it('provisions exactly one bootstrap tenant on first run', async () => {
     const result = await runSeed(SEED_ENV, logger);
     expect(result).toEqual({
       adminCreated: true,
@@ -46,6 +64,7 @@ describe('runSeed (DBD §8 — idempotent, never destructive)', () => {
       uncategorizedCreated: true,
     });
 
+    expect(await Organization.countDocuments({})).toBe(1);
     expect(await User.countDocuments({})).toBe(1);
     expect(await Settings.countDocuments({})).toBe(1);
     expect(await Category.countDocuments({})).toBe(1);
@@ -62,6 +81,10 @@ describe('runSeed (DBD §8 — idempotent, never destructive)', () => {
     expect(await bcrypt.compare(SEED_ENV.SEED_ADMIN_PASSWORD, admin?.passwordHash ?? '')).toBe(
       true,
     );
+    // The admin is bound to the provisioned tenant, which owns it.
+    const org = await Organization.findOne({});
+    expect(admin?.tenantId.toString()).toBe(org?._id.toString());
+    expect(org?.ownerUserId.toString()).toBe(admin?._id.toString());
   });
 
   it('passwordHash is select:false — invisible to default queries (DBD §2.1)', async () => {
@@ -70,7 +93,7 @@ describe('runSeed (DBD §8 — idempotent, never destructive)', () => {
     expect(admin?.passwordHash).toBeUndefined();
   });
 
-  it('is idempotent: second run creates nothing', async () => {
+  it('is idempotent: second run provisions nothing', async () => {
     await runSeed(SEED_ENV, logger);
     const second = await runSeed(SEED_ENV, logger);
     expect(second).toEqual({
@@ -78,6 +101,7 @@ describe('runSeed (DBD §8 — idempotent, never destructive)', () => {
       settingsCreated: false,
       uncategorizedCreated: false,
     });
+    expect(await Organization.countDocuments({})).toBe(1);
     expect(await User.countDocuments({})).toBe(1);
     expect(await Settings.countDocuments({})).toBe(1);
     expect(await Category.countDocuments({})).toBe(1);
@@ -105,8 +129,12 @@ describe('runSeed (DBD §8 — idempotent, never destructive)', () => {
     expect(settings?.defaultLowStockThreshold).toBe(25);
   });
 
-  it('Uncategorized is the collation natural key — a lowercase twin cannot be added', async () => {
+  it('Uncategorized is the per-tenant collation natural key — a lowercase twin cannot be added', async () => {
     await runSeed(SEED_ENV, logger);
+    const org = await Organization.findOne({});
+    // Switch into the seeded tenant to assert its per-tenant uniqueness.
+    enterTenantContextForTesting(org!._id);
+
     const found = await Category.findOne({ name: 'uncategorized' }).collation(
       CATEGORY_NAME_COLLATION,
     );
@@ -115,21 +143,31 @@ describe('runSeed (DBD §8 — idempotent, never destructive)', () => {
 
     await expect(Category.create({ name: 'UNCATEGORIZED', isSystem: false })).rejects.toMatchObject(
       { code: 11000 },
-    ); // unique collation index (DBD §2.2)
+    ); // per-tenant unique collation index (DBD §2.2)
   });
 });
 
-describe('verifyBootIntegrity (BR-30/41 — with remediation message)', () => {
+describe('verifyBootIntegrity (SaaS — per-tenant coherence + remediation message)', () => {
   it('passes on a seeded database', async () => {
     await runSeed(SEED_ENV, logger);
     await expect(verifyBootIntegrity()).resolves.toBeUndefined();
   });
 
-  it('fails on an empty database, naming BOTH problems and the fix', async () => {
+  it('passes on an EMPTY system — a fresh SaaS install with no tenants is ready', async () => {
+    await expect(verifyBootIntegrity()).resolves.toBeUndefined();
+  });
+
+  it('fails when a tenant exists but its bootstrap data is missing, naming BOTH problems + the fix', async () => {
+    // A tenant with neither settings nor an active admin — an incoherent state.
+    await Organization.create({
+      name: 'Broken Co',
+      slug: 'broken-co',
+      ownerUserId: new mongoose.Types.ObjectId(),
+    });
     const failure = await verifyBootIntegrity().catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(IntegrityError);
     const message = (failure as Error).message;
-    expect(message).toContain('settings singleton missing');
+    expect(message).toContain('no settings document');
     expect(message).toContain('no active Admin');
     expect(message).toContain('npm run seed'); // the remediation (DBD §8)
   });

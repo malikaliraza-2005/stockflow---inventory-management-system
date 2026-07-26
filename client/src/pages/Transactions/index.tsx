@@ -1,21 +1,24 @@
 /**
- * Transactions page — WIR §11 / FR-TXN (F7). The Stock Ledger tab (this phase):
- * filters (date range · type · include-archived) + a paginated, append-only
- * table of movements. Archived-product rows carry a badge (EC-16). Filters and
- * the active tab live in the URL (SMP §4) so views survive refresh and sharing;
- * a `productId` deep-link (SMP §5, from a product's "view ledger") pre-filters.
+ * Transactions page — WIR §11 / FR-TXN (F7). Two tabs, selected via the URL
+ * (`?tab=`, SMP §4): the Stock Ledger (both roles, P3) and the Audit Trail
+ * (Admin-only, this phase's slice — gated in-page with usePermission('audit.view')).
  *
- * The Audit Trail tab is Admin-only AND lands in Phase 5 — shown disabled here.
+ * The Stock Ledger tab: filters (date range · type · include-archived) + a
+ * paginated, append-only table of movements; archived-product rows carry a badge
+ * (EC-16); a `productId` deep-link (SMP §5) pre-filters. The Audit Trail tab
+ * (AuditTrailTab) adds entity/date filters + before/after diff expansion.
  */
 import { useCallback, useMemo } from 'react';
 
 import { listTransactions, type TransactionRow } from '../../api/transactions';
+import { AuditTrailTab } from '../../components/domain/AuditTrailTab';
 import { AlertBanner } from '../../components/ui/AlertBanner';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { DataTable, type ColumnDef } from '../../components/ui/DataTable';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { Pagination } from '../../components/ui/Pagination';
+import { usePermission } from '../../hooks/usePermission';
 import { useQueryState } from '../../hooks/useQueryState';
 import { useUrlState } from '../../hooks/useUrlState';
 
@@ -34,6 +37,64 @@ function signed(value: number): string {
 }
 
 export default function TransactionsPage() {
+  const { get, patch } = useUrlState();
+  const can = usePermission();
+  const canAudit = can('audit.view');
+  const tab = canAudit && get('tab') === 'audit' ? 'audit' : 'ledger';
+
+  return (
+    <section className="space-y-4">
+      <h1 className="text-xl font-semibold text-gray-900">Transactions</h1>
+
+      <div
+        role="tablist"
+        aria-label="Transaction views"
+        className="flex gap-1 border-b border-gray-200"
+      >
+        <button
+          role="tab"
+          aria-selected={tab === 'ledger'}
+          onClick={() => patch({ tab: undefined }, true)}
+          className={
+            tab === 'ledger'
+              ? 'border-b-2 border-brand-600 px-3 py-2 text-sm font-medium text-brand-700'
+              : 'px-3 py-2 text-sm text-gray-600 hover:text-gray-900'
+          }
+        >
+          Stock Ledger
+        </button>
+        {canAudit ? (
+          <button
+            role="tab"
+            aria-selected={tab === 'audit'}
+            onClick={() => patch({ tab: 'audit' }, true)}
+            className={
+              tab === 'audit'
+                ? 'border-b-2 border-brand-600 px-3 py-2 text-sm font-medium text-brand-700'
+                : 'px-3 py-2 text-sm text-gray-600 hover:text-gray-900'
+            }
+          >
+            Audit Trail
+          </button>
+        ) : (
+          <button
+            role="tab"
+            aria-selected="false"
+            disabled
+            title="Audit Trail is Admin-only"
+            className="cursor-not-allowed px-3 py-2 text-sm text-gray-400"
+          >
+            Audit Trail
+          </button>
+        )}
+      </div>
+
+      {tab === 'audit' ? <AuditTrailTab /> : <LedgerTab />}
+    </section>
+  );
+}
+
+function LedgerTab() {
   const { get, getNumber, patch } = useUrlState();
 
   const page = getNumber('page', 1);
@@ -120,32 +181,7 @@ export default function TransactionsPage() {
   );
 
   return (
-    <section className="space-y-4">
-      <h1 className="text-xl font-semibold text-gray-900">Transactions</h1>
-
-      <div
-        role="tablist"
-        aria-label="Transaction views"
-        className="flex gap-1 border-b border-gray-200"
-      >
-        <button
-          role="tab"
-          aria-selected="true"
-          className="border-b-2 border-brand-600 px-3 py-2 text-sm font-medium text-brand-700"
-        >
-          Stock Ledger
-        </button>
-        <button
-          role="tab"
-          aria-selected="false"
-          disabled
-          title="Audit Trail arrives in a later release"
-          className="cursor-not-allowed px-3 py-2 text-sm text-gray-400"
-        >
-          Audit Trail
-        </button>
-      </div>
-
+    <div className="space-y-4">
       {productId && (
         <AlertBanner
           tone="info"
@@ -234,6 +270,6 @@ export default function TransactionsPage() {
           )}
         </>
       )}
-    </section>
+    </div>
   );
 }

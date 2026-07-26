@@ -8,7 +8,7 @@
  * (renderExpandedRow) lands with F7 (Audit Trail — its first consumer); the
  * prop surface is declared so later features extend, never re-cut.
  */
-import { useState, type ReactNode } from 'react';
+import { Fragment, useState, type ReactNode } from 'react';
 
 import { Skeleton } from './Skeleton';
 
@@ -34,6 +34,9 @@ export interface DataTableProps<T> {
   onSortChange?: ((key: string) => void) | undefined;
   rowActions?: ((row: T) => RowAction<T>[]) | undefined;
   mobileCard?: ((row: T) => ReactNode) | undefined;
+  /** F7 (first consumer): a per-row expandable panel (audit before/after diffs).
+   *  When set, each row gets an accessible expand toggle (aria-expanded). */
+  renderExpandedRow?: ((row: T) => ReactNode) | undefined;
   emptyState: ReactNode;
   loading?: boolean;
 }
@@ -48,9 +51,20 @@ export function DataTable<T>({
   onSortChange,
   rowActions,
   mobileCard,
+  renderExpandedRow,
   emptyState,
   loading = false,
 }: DataTableProps<T>) {
+  const [expandedKeys, setExpandedKeys] = useState<ReadonlySet<string>>(new Set());
+  const toggleExpanded = (key: string) =>
+    setExpandedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  const totalColumns = columns.length + (renderExpandedRow ? 1 : 0) + (rowActions ? 1 : 0);
+
   if (loading) {
     return (
       <div className="space-y-2" data-testid="datatable-loading">
@@ -70,7 +84,8 @@ export function DataTable<T>({
       {/* ≥ 768: real table */}
       <table className="hidden w-full border-collapse text-sm md:table">
         <thead>
-          <tr className="border-b border-gray-200 text-left text-gray-600">
+          <tr className="border-b border-neutral-200 text-left text-xs uppercase tracking-wide text-neutral-500">
+            {renderExpandedRow && <th scope="col" className="w-8 px-2 py-2" />}
             {columns.map((col) => {
               const isSorted = sort?.key === col.key;
               const ariaSort = isSorted
@@ -106,46 +121,97 @@ export function DataTable<T>({
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
-            <tr key={rowKey(row)} className="border-b border-gray-100 hover:bg-gray-50">
-              {columns.map((col) => (
-                <td key={col.key} className={`px-3 py-2 ${alignClass[col.align ?? 'left']}`}>
-                  {col.render(row)}
-                </td>
-              ))}
-              {rowActions && (
-                <td className="px-3 py-2 text-right">
-                  <RowActionMenu actions={rowActions(row)} row={row} />
-                </td>
-              )}
-            </tr>
-          ))}
+          {rows.map((row) => {
+            const key = rowKey(row);
+            const isExpanded = expandedKeys.has(key);
+            return (
+              <Fragment key={key}>
+                <tr className="border-b border-neutral-100 transition-colors hover:bg-brand-50/40">
+                  {renderExpandedRow && (
+                    <td className="px-2 py-2">
+                      <button
+                        type="button"
+                        aria-expanded={isExpanded}
+                        aria-label={isExpanded ? 'Collapse row' : 'Expand row'}
+                        onClick={() => toggleExpanded(key)}
+                        className="rounded px-1 text-gray-500 hover:bg-gray-100"
+                      >
+                        <span aria-hidden="true">{isExpanded ? '▾' : '▸'}</span>
+                      </button>
+                    </td>
+                  )}
+                  {columns.map((col) => (
+                    <td key={col.key} className={`px-3 py-2 ${alignClass[col.align ?? 'left']}`}>
+                      {col.render(row)}
+                    </td>
+                  ))}
+                  {rowActions && (
+                    <td className="px-3 py-2 text-right">
+                      <RowActionMenu actions={rowActions(row)} row={row} />
+                    </td>
+                  )}
+                </tr>
+                {renderExpandedRow && isExpanded && (
+                  <tr className="border-b border-gray-100 bg-gray-50">
+                    <td colSpan={totalColumns} className="px-3 py-2">
+                      {renderExpandedRow(row)}
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            );
+          })}
         </tbody>
       </table>
 
       {/* < 768: card stack (mobileCard) or a plain key/value fallback */}
       <div className="space-y-3 md:hidden">
-        {rows.map((row) => (
-          <div key={rowKey(row)} className="rounded-lg border border-gray-200 bg-white p-4">
-            {mobileCard ? (
-              mobileCard(row)
-            ) : (
-              <dl className="space-y-1">
-                {columns.map((col) => (
-                  <div key={col.key} className="flex justify-between gap-2 text-sm">
-                    <dt className="text-gray-500">{col.header}</dt>
-                    <dd className="text-gray-900">{col.render(row)}</dd>
-                  </div>
-                ))}
-              </dl>
-            )}
-            {rowActions && (
-              <div className="mt-3 border-t border-gray-100 pt-2">
-                <RowActionMenu actions={rowActions(row)} row={row} />
-              </div>
-            )}
-          </div>
-        ))}
+        {rows.map((row) => {
+          const key = rowKey(row);
+          const isExpanded = expandedKeys.has(key);
+          return (
+            <div
+              key={key}
+              className="rounded-xl border border-neutral-200 bg-white p-4 shadow-card"
+            >
+              {mobileCard ? (
+                mobileCard(row)
+              ) : (
+                <dl className="space-y-1">
+                  {columns.map((col) => (
+                    <div key={col.key} className="flex justify-between gap-2 text-sm">
+                      <dt className="text-gray-500">{col.header}</dt>
+                      <dd className="text-gray-900">{col.render(row)}</dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
+              {renderExpandedRow && (
+                <>
+                  <button
+                    type="button"
+                    aria-expanded={isExpanded}
+                    aria-label={isExpanded ? 'Collapse row' : 'Expand row'}
+                    onClick={() => toggleExpanded(key)}
+                    className="mt-2 text-sm text-brand-700 hover:underline"
+                  >
+                    {isExpanded ? 'Hide details' : 'Show details'}
+                  </button>
+                  {isExpanded && (
+                    <div className="mt-2 border-t border-gray-100 pt-2">
+                      {renderExpandedRow(row)}
+                    </div>
+                  )}
+                </>
+              )}
+              {rowActions && (
+                <div className="mt-3 border-t border-gray-100 pt-2">
+                  <RowActionMenu actions={rowActions(row)} row={row} />
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </>
   );
@@ -170,7 +236,7 @@ function RowActionMenu<T>({ actions, row }: { actions: RowAction<T>[]; row: T })
       {open && (
         <div
           role="menu"
-          className="absolute right-0 z-10 mt-1 w-40 rounded-md border border-gray-200 bg-white py-1 shadow-lg"
+          className="absolute right-0 z-10 mt-1 w-40 rounded-lg border border-neutral-200 bg-white py-1 shadow-soft"
           onMouseLeave={() => setOpen(false)}
         >
           {actions.map((action) => (

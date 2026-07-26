@@ -9,6 +9,7 @@ import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { useTestTenant } from '../helpers/tenant.js';
 
 import { createApp } from '../../src/app.js';
 import { createLogger } from '../../src/lib/logger.js';
@@ -47,6 +48,8 @@ function refreshCookieOf(res: request.Response): string {
   expect(cookie, 'refresh Set-Cookie present').toBeDefined();
   return (cookie as string).split(';')[0]?.split('=')[1] as string;
 }
+
+useTestTenant(); // SaaS: run every test in a fixed tenant context
 
 beforeAll(async () => {
   mongod = await MongoMemoryServer.create();

@@ -1,32 +1,40 @@
 /**
- * Seed module — DBD §8, 1:1. Idempotent, environment-variable-driven,
- * upsert-by-natural-key only, NEVER destructive on re-run:
+ * Seed module — DBD §8, adapted for SaaS multi-tenancy. Idempotent,
+ * environment-variable-driven, NEVER destructive on re-run:
  *
- *   1. First Admin  — natural key: email ($setOnInsert only — a re-run never
- *      touches an existing account's password, role, or lifecycle)
- *   2. Settings singleton — natural key: the singleton itself ({} filter);
- *      operator edits survive re-runs (only inserted defaults, never $set)
- *   3. Uncategorized — natural key: name under the §2.2 collation, so a
- *      user-created "uncategorized" can never race a second system row
+ *   1. Build indexes + apply the JSON-schema validators (release-phase, DEP §11)
+ *      — the boot integrity check depends on these existing.
+ *   2. Provision the BOOTSTRAP tenant (org + first Admin + per-tenant settings +
+ *      Uncategorized) — only when its Admin does not already exist. In SaaS the
+ *      first admin is a full tenant, created via the same `provisionTenant`
+ *      path public signup uses; a re-run is a no-op.
  *
- * Runs as a RELEASE-PHASE command in every environment (DEP §11) — before new
- * instances start — which is what makes the boot integrity check (integrity.ts)
- * safe to enforce. Tests reuse THIS module (TST §5 seed parity).
+ * Natural key for idempotency: the Admin email (globally unique across tenants).
+ * Runs as a RELEASE-PHASE command in every environment (DEP §11). Tests reuse
+ * THIS module (TST §5 seed parity).
  */
 import bcrypt from 'bcrypt';
+import mongoose from 'mongoose';
 
 import type { Env } from '../config/env.js';
 import type { Logger } from '../lib/logger.js';
-import { Category, CATEGORY_NAME_COLLATION } from '../models/Category.js';
+import { runAsSystem } from '../lib/tenantContext.js';
+import { Category } from '../models/Category.js';
 import { JobLock } from '../models/JobLock.js';
 import { applyJsonValidators } from '../models/jsonValidators.js';
-import { Settings, SETTINGS_DEFAULTS } from '../models/Settings.js';
+import { Organization } from '../models/Organization.js';
+import { Settings } from '../models/Settings.js';
 import { Transaction } from '../models/Transaction.js';
 import { User } from '../models/User.js';
+import { provisionTenant, UNCATEGORIZED_NAME } from '../services/provisioning.js';
 
 const BCRYPT_COST = 12; // BR-32
 
-export const UNCATEGORIZED_NAME = 'Uncategorized';
+/** The bootstrap tenant's display identity (dev/demo; SaaS tenants come from signup). */
+const BOOTSTRAP_ORG_NAME = 'Demo Workspace';
+const BOOTSTRAP_ORG_SLUG = 'demo-workspace';
+
+export { UNCATEGORIZED_NAME };
 
 export interface SeedResult {
   adminCreated: boolean;
@@ -38,63 +46,54 @@ export async function runSeed(
   env: Pick<Env, 'SEED_ADMIN_EMAIL' | 'SEED_ADMIN_PASSWORD'>,
   logger: Logger,
 ): Promise<SeedResult> {
-  // Indexes first: the email/name unique indexes ARE the idempotency backstop.
-  // `Transaction.init()` builds the F6 `{idempotencyKey}` unique-sparse index —
-  // the authoritative movement-replay backstop (ARB-02) must exist before the
-  // movement path serves traffic.
+  // Indexes first (the unique indexes ARE part of the idempotency backstop), then
+  // the DBD §5 second layer — JSON-schema validators (collMod is idempotent).
   await Promise.all([
+    Organization.init(),
     User.init(),
     Category.init(),
     Settings.init(),
     Transaction.init(),
     JobLock.init(), // A-8 lease TTL index (BEV-05)
   ]);
-
-  // DBD §5 second layer — JSON-schema validators (collMod is idempotent).
-  // Release-phase placement means every environment carries them before new
-  // code serves traffic; tests inherit them by reusing this module (TST §5).
   await applyJsonValidators();
 
   const email = env.SEED_ADMIN_EMAIL.toLowerCase();
 
-  // 1. First Admin (FR-USER-06) — hash computed only when needed is not worth
-  // the roundtrip complexity; cost-12 bcrypt once per release is negligible.
+  // Idempotent: the bootstrap tenant exists iff its Admin (globally-unique
+  // email) exists. A re-run touches nothing.
+  const existingAdmin = await runAsSystem(() => User.exists({ email }));
+  if (existingAdmin) {
+    logger.info(
+      { tenantProvisioned: false },
+      'seed complete (bootstrap tenant already present — idempotent no-op)',
+    );
+    return { adminCreated: false, settingsCreated: false, uncategorizedCreated: false };
+  }
+
   const passwordHash = await bcrypt.hash(env.SEED_ADMIN_PASSWORD, BCRYPT_COST);
-  const adminResult = await User.updateOne(
-    { email },
-    {
-      $setOnInsert: {
-        name: 'Administrator',
-        email,
-        passwordHash,
-        role: 'ADMIN',
-        isActive: true,
-        mustChangePassword: true, // DBD §8 — rotate at first login
-        failedLoginCount: 0,
+  const session = await mongoose.startSession();
+  try {
+    await session.withTransaction(
+      async () => {
+        await provisionTenant(
+          {
+            organizationName: BOOTSTRAP_ORG_NAME,
+            slug: BOOTSTRAP_ORG_SLUG,
+            adminName: 'Administrator',
+            adminEmail: email,
+            adminPasswordHash: passwordHash,
+            mustChangePassword: true, // DBD §8 — rotate at first login
+          },
+          { session },
+        );
       },
-    },
-    { upsert: true },
-  );
+      { readConcern: { level: 'majority' }, writeConcern: { w: 'majority' } },
+    );
+  } finally {
+    await session.endSession();
+  }
 
-  // 2. Settings singleton (BR-41)
-  const settingsResult = await Settings.updateOne(
-    {},
-    { $setOnInsert: { ...SETTINGS_DEFAULTS } },
-    { upsert: true },
-  );
-
-  // 3. Uncategorized (BR-28) — collation on the filter per the §2.2 rule
-  const categoryResult = await Category.updateOne(
-    { name: UNCATEGORIZED_NAME },
-    { $setOnInsert: { name: UNCATEGORIZED_NAME, isSystem: true } },
-    { upsert: true, collation: CATEGORY_NAME_COLLATION },
-  );
-
-  const result: SeedResult = {
-    adminCreated: adminResult.upsertedCount > 0,
-    settingsCreated: settingsResult.upsertedCount > 0,
-    uncategorizedCreated: categoryResult.upsertedCount > 0,
-  };
-  logger.info(result, 'seed complete (idempotent — created=false means already present)');
-  return result;
+  logger.info({ tenantProvisioned: true }, 'seed complete (bootstrap tenant created)');
+  return { adminCreated: true, settingsCreated: true, uncategorizedCreated: true };
 }

@@ -10,10 +10,13 @@ import { Spinner } from './Spinner';
 type Variant = 'primary' | 'secondary' | 'danger' | 'ghost';
 
 const variantClasses: Record<Variant, string> = {
-  primary: 'bg-brand-600 text-white hover:bg-brand-700 disabled:bg-brand-500/50',
-  secondary: 'border border-gray-300 bg-white text-gray-800 hover:bg-gray-50 disabled:opacity-50',
-  danger: 'bg-danger-600 text-white hover:bg-red-700 disabled:opacity-50',
-  ghost: 'text-gray-700 hover:bg-gray-100 disabled:opacity-50',
+  primary:
+    'bg-linear-to-b from-brand-500 to-brand-600 text-white shadow-sm hover:from-brand-600 hover:to-brand-700 hover:shadow active:from-brand-700 active:to-brand-800 disabled:from-brand-500/50 disabled:to-brand-500/50 disabled:shadow-none',
+  secondary:
+    'border border-neutral-300 bg-white text-neutral-800 shadow-xs hover:border-neutral-400 hover:bg-neutral-50 active:bg-neutral-100 disabled:opacity-50',
+  danger:
+    'bg-danger-600 text-white shadow-sm hover:bg-danger-700 hover:shadow active:bg-danger-700 disabled:opacity-50 disabled:shadow-none',
+  ghost: 'text-neutral-700 hover:bg-neutral-100 active:bg-neutral-200 disabled:opacity-50',
 };
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -35,7 +38,7 @@ export function Button({
     <button
       type={type}
       disabled={disabled || loading}
-      className={`inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed ${variantClasses[variant]} ${className}`}
+      className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all duration-150 active:translate-y-px disabled:cursor-not-allowed disabled:active:translate-y-0 ${variantClasses[variant]} ${className}`}
       {...rest}
     >
       {loading && <Spinner size="sm" />}

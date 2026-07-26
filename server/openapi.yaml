@@ -38,6 +38,12 @@ tags:
     description: Stock movements & the ledger — 05 §7.5 (F6), the change-controlled core. POST /inventory/movements is the sole over-the-wire quantity writer (Boundary T1); idempotent via the Idempotency-Key header (ARB-02). STOCK_IN/STOCK_OUT both-roles; ADJUSTMENT Admin (the one validate-before-authorize route, AAD §5.2).
   - name: transactions
     description: Stock ledger reads — 05 §7.6 (F7). The append-only ledger; both-roles read. No write path exists (DES-1) — MovementService is the only writer. Filterable by date/type/product/user; archived-product rows are hidden unless requested (EC-16 badge).
+  - name: audit
+    description: Audit trail reads — 05 §7.6 (F7). Admin-only; append-only (DES-1). Entity diffs + security events; entityLabel (DN-4) survives hard deletes. Filterable by entity type / entity / actor / date.
+  - name: dashboard
+    description: The single cached dashboard aggregate — 05 §7.7 (F9). Both-roles read. Every metric and both chart series come from one call (FR-DASH-03), served from a 30–60 s per-instance cache; asOf surfaces the snapshot age (BR-25).
+  - name: reports
+    description: Reports & export — 05 §7.8 (F10). Five paginated on-screen reports (both-roles; consistency Admin) plus an Admin-only CSV export streaming the full filtered dataset (ERR §7). Historical reports are ledger-derived and byte-reproducible (BR-40); snapshot reports value stock at current cost (AS-17).
   - name: settings
     description: System settings singleton — 05 §7.10 (F11). Admin-only; Staff reads the same display constants from the session payload (FCM-01). defaultLowStockThreshold is copied into products at creation (DN-3) — edits never rewrite existing products.
   - name: uploads
@@ -89,6 +95,43 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
 
+  /auth/signup:
+    post:
+      tags: [auth]
+      operationId: signup
+      summary: Public self-service signup — create an organization + first Admin (SaaS)
+      description: >-
+        Provisions a new tenant (organization + its first Admin owner +
+        per-tenant settings + Uncategorized category) atomically, then returns a
+        full session (the owner is logged straight in). Email is globally unique
+        across all tenants — a collision is a 409 DUPLICATE_EMAIL. Strict-limited.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignupRequest'
+      responses:
+        '201':
+          description: >-
+            Workspace created and session established. Also sets the rotating
+            refresh cookie (httpOnly · Secure · SameSite=Strict · Path=/api/v1/auth).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          description: DUPLICATE_EMAIL — that email is already registered (globally unique).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
   /auth/login:
     post:
       tags: [auth]
@@ -124,6 +167,56 @@ paths:
                 $ref: '#/components/schemas/ErrorEnvelope'
         '423':
           description: ACCOUNT_LOCKED — 5 consecutive failures → 15-min lock (BR-33).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /auth/google:
+    post:
+      tags: [auth]
+      operationId: googleAuth
+      summary: Sign in / sign up with Google (GIS ID-token → session)
+      description: >-
+        Verifies a Google Identity Services ID token (google-auth-library) and
+        resolves-or-provisions by VERIFIED email: an existing account is linked
+        (googleSub attached) and logged in; an unknown email provisions a new
+        password-less workspace. Backs both the "Sign in" and "Sign up with
+        Google" buttons. Unverified Google email is rejected (401).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GoogleAuthRequest'
+      responses:
+        '200':
+          description: >-
+            Session established. Also sets the rotating refresh cookie
+            (httpOnly · Secure · SameSite=Strict · Path=/api/v1/auth).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '400':
+          description: >-
+            Missing credential (VALIDATION_ERROR) or Google sign-in not
+            configured on this server.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          description: Invalid Google token, or the Google account email is unverified.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '409':
+          description: DUPLICATE_EMAIL — a provisioning race on the same email.
           content:
             application/json:
               schema:
@@ -1008,6 +1101,317 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
 
+  /audit-logs:
+    get:
+      tags: [audit]
+      operationId: listAuditLogs
+      summary: List the audit trail (FR-TXN-04/05) — Admin
+      description: >-
+        Paginated audit trail — entity diffs + security events. entityLabel (DN-4)
+        renders entries after hard deletes. Append-only; no mutation route exists
+        (DES-1). Filterable by entity type / entity / actor / ordered date range.
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - name: entityType
+          in: query
+          schema:
+            type: string
+            enum: [PRODUCT, CATEGORY, USER, SETTINGS, SECURITY]
+        - name: entityId
+          in: query
+          schema:
+            type: string
+            pattern: '^[0-9a-fA-F]{24}$'
+        - name: actorId
+          in: query
+          schema:
+            type: string
+            pattern: '^[0-9a-fA-F]{24}$'
+        - name: from
+          in: query
+          schema:
+            type: string
+        - name: to
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List envelope of audit rows.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginationMeta'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/AuditLogRow'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /dashboard/summary:
+    get:
+      tags: [dashboard]
+      operationId: getDashboardSummary
+      summary: The single cached dashboard aggregate (FR-DASH-01…04) — Any
+      description: >-
+        Every dashboard metric and both chart series in ONE call (FR-DASH-03),
+        served from a per-instance cache (30–60 s TTL, A-2). `asOf` reports when
+        the served snapshot was computed — under a cache hit it can lag by up to
+        one TTL, the stated staleness bound (BR-25). Totals exclude archived
+        products; recent rows and chart series span all products.
+      parameters:
+        - name: range
+          in: query
+          description: Chart/trend window in days (FR-DASH-02). Default 30.
+          schema:
+            type: integer
+            enum: [7, 30, 90]
+            default: 30
+      responses:
+        '200':
+          description: The dashboard summary snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardSummary'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /reports/inventory:
+    get:
+      tags: [reports]
+      operationId: getInventoryReport
+      summary: Inventory Summary report (FR-RPT-01) — Any
+      description: >-
+        Per active product: SKU, name, category, quantity, current cost, and line
+        value (cost × quantity), with a totals row. Filter by category and derived
+        stock status. Values use CURRENT cost (AS-17).
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - name: categoryId
+          in: query
+          schema:
+            type: string
+            pattern: '^[0-9a-fA-F]{24}$'
+        - name: stockStatus
+          in: query
+          schema:
+            $ref: '#/components/schemas/StockStatus'
+      responses:
+        '200':
+          description: Inventory rows + totals.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InventoryReport'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /reports/low-stock:
+    get:
+      tags: [reports]
+      operationId: getLowStockReport
+      summary: Low Stock report (FR-RPT-02) — Any
+      description: Active products at or below their threshold, with threshold, quantity, and shortage.
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: Low-stock rows.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginationMeta'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/LowStockReportRow'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /reports/transactions:
+    get:
+      tags: [reports]
+      operationId: getTransactionsReport
+      summary: Transaction History report (FR-RPT-03, BR-40) — Any
+      description: >-
+        Ledger-derived movements over a MANDATORY date range (both bounds
+        required, span ≤ 366 days). Re-running a past period is byte-identical
+        (BR-40). Rows are the ledger row shape.
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [INITIAL, STOCK_IN, STOCK_OUT, ADJUSTMENT]
+        - name: productId
+          in: query
+          schema:
+            type: string
+            pattern: '^[0-9a-fA-F]{24}$'
+        - name: userId
+          in: query
+          schema:
+            type: string
+            pattern: '^[0-9a-fA-F]{24}$'
+      responses:
+        '200':
+          description: Ledger rows over the range.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginationMeta'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/TransactionRow'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /reports/product-performance:
+    get:
+      tags: [reports]
+      operationId: getProductPerformanceReport
+      summary: Product Performance report (FR-RPT-04) — Any
+      description: >-
+        Per-product in/out/net movement totals over a MANDATORY date range (span
+        ≤ 366 days), ledger-derived (BR-40), with an overall totals row.
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Per-product performance rows + totals.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductPerformanceReport'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /reports/consistency:
+    get:
+      tags: [reports]
+      operationId: getConsistencyReport
+      summary: Ledger Consistency report (FR-RPT-05, BR-18) — Admin
+      description: >-
+        Per-product reconciliation: ledger sum (Σ quantityChange) vs the
+        materialized quantity, drift flagged. Snapshot-consistent (ARB-05).
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: Consistency rows.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginationMeta'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ConsistencyRow'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /reports/{name}/export:
+    get:
+      tags: [reports]
+      operationId: exportReport
+      summary: Stream a report as CSV (FR-RPT-06) — Admin
+      description: >-
+        Streams `text/csv` of the FULL filtered dataset for the named report
+        (page/limit ignored, APR-06). Admin-only — Staff receive 403 at the API.
+        Same filters as the named report. The stream writes rows only after a
+        successful first batch; a mid-stream failure destroys the connection
+        rather than emitting a truncated-but-complete-looking file (ERR §7).
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [inventory, low-stock, transactions, product-performance, consistency]
+      responses:
+        '200':
+          description: CSV stream of the full filtered dataset.
+          content:
+            text/csv:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
   /settings:
     get:
       tags: [settings]
@@ -1306,6 +1710,30 @@ components:
       description: The two operator roles (SRS §5 matrix).
       enum: [ADMIN, STAFF]
 
+    SignupRequest:
+      type: object
+      description: >-
+        Public self-service signup (SaaS). BR-32 password policy applies (this is
+        the account's first password). email is globally unique across tenants.
+      required: [organizationName, name, email, password]
+      properties:
+        organizationName:
+          type: string
+          minLength: 2
+          maxLength: 120
+        name:
+          type: string
+          minLength: 2
+          maxLength: 80
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          minLength: 10
+          maxLength: 64
+
     LoginRequest:
       type: object
       description: 05 §15.1 — non-empty password only; policy never applied at login (AAD §2).
@@ -1316,6 +1744,15 @@ components:
           format: email
           maxLength: 254
         password:
+          type: string
+          minLength: 1
+
+    GoogleAuthRequest:
+      type: object
+      description: Google Identity Services ID token; verified server-side.
+      required: [idToken]
+      properties:
+        idToken:
           type: string
           minLength: 1
 
@@ -1998,6 +2435,296 @@ components:
           enum: [DAMAGED, LOST, FOUND, COUNT_CORRECTION, RETURN, OTHER]
         note:
           type: string
+
+    AuditLogRow:
+      type: object
+      description: An audit-trail row — entity diff or security event (05 §7.6, F7).
+      required: [id, actorId, actorName, entityType, entityLabel, action, createdAt]
+      properties:
+        id:
+          type: string
+        actorId:
+          type: string
+        actorName:
+          type: string
+        entityType:
+          type: string
+          enum: [PRODUCT, CATEGORY, USER, SETTINGS, SECURITY]
+        entityId:
+          type: string
+        entityLabel:
+          type: string
+          description: Display identity captured at write time (DN-4) — renders after hard deletes.
+        action:
+          type: string
+          enum:
+            [
+              CREATE,
+              UPDATE,
+              ARCHIVE,
+              RESTORE,
+              DELETE,
+              LOGIN_SUCCESS,
+              LOGIN_FAILED,
+              LOCKOUT,
+              PASSWORD_RESET_ISSUED,
+              PASSWORD_RESET_COMPLETED,
+              PASSWORD_CHANGED,
+              ROLE_CHANGE,
+              DEACTIVATE,
+              REACTIVATE,
+              TOKEN_REUSE_DETECTED,
+              REPEATED_FORBIDDEN,
+            ]
+        changes:
+          type: array
+          items:
+            type: object
+            required: [field]
+            properties:
+              field:
+                type: string
+              before: {}
+              after: {}
+        ip:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    DashboardAlertItem:
+      type: object
+      description: A low/out-of-stock preview entry linking to the product + pre-filled Stock In (FR-DASH-04).
+      required: [id, name, sku, quantity, lowStockThreshold]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        sku:
+          type: string
+        quantity:
+          type: integer
+          minimum: 0
+        lowStockThreshold:
+          type: integer
+          minimum: 0
+
+    MovementTrendPoint:
+      type: object
+      description: One UTC day of the stock-movement trend series — in vs out (FR-DASH-02).
+      required: [date, in, out]
+      properties:
+        date:
+          type: string
+          description: UTC day key (YYYY-MM-DD).
+        in:
+          type: integer
+          minimum: 0
+        out:
+          type: integer
+          minimum: 0
+
+    TransactionVolumePoint:
+      type: object
+      description: One UTC day of transaction volume (FR-DASH-02).
+      required: [date, count]
+      properties:
+        date:
+          type: string
+          description: UTC day key (YYYY-MM-DD).
+        count:
+          type: integer
+          minimum: 0
+
+    DashboardSummary:
+      type: object
+      description: The single cached dashboard aggregate (05 §7.7, FR-DASH-01…04).
+      required: [asOf, totals, lowStock, outOfStock, recentTransactions, charts]
+      properties:
+        asOf:
+          type: string
+          format: date-time
+          description: When the served snapshot was computed (may lag by ≤ TTL under cache, BR-25).
+        totals:
+          type: object
+          required: [activeProducts, inventoryValue, unitsInStock]
+          properties:
+            activeProducts:
+              type: integer
+              minimum: 0
+            inventoryValue:
+              $ref: '#/components/schemas/Money'
+            unitsInStock:
+              type: integer
+              minimum: 0
+        lowStock:
+          type: object
+          required: [count, items]
+          properties:
+            count:
+              type: integer
+              minimum: 0
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/DashboardAlertItem'
+        outOfStock:
+          type: object
+          required: [count, items]
+          properties:
+            count:
+              type: integer
+              minimum: 0
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/DashboardAlertItem'
+        recentTransactions:
+          type: array
+          description: The 10 most recent ledger rows (identical shape to GET /transactions).
+          items:
+            $ref: '#/components/schemas/TransactionRow'
+        charts:
+          type: object
+          required: [movementTrend, transactionVolume]
+          properties:
+            movementTrend:
+              type: array
+              items:
+                $ref: '#/components/schemas/MovementTrendPoint'
+            transactionVolume:
+              type: array
+              items:
+                $ref: '#/components/schemas/TransactionVolumePoint'
+
+    InventoryReportRow:
+      type: object
+      description: One row of the Inventory Summary report (FR-RPT-01) — line value at current cost.
+      required: [id, sku, name, categoryName, quantity, costPrice, lineValue, stockStatus]
+      properties:
+        id:
+          type: string
+        sku:
+          type: string
+        name:
+          type: string
+        categoryName:
+          type: string
+        quantity:
+          type: integer
+          minimum: 0
+        costPrice:
+          $ref: '#/components/schemas/Money'
+        lineValue:
+          $ref: '#/components/schemas/Money'
+        stockStatus:
+          $ref: '#/components/schemas/StockStatus'
+
+    InventoryReport:
+      allOf:
+        - $ref: '#/components/schemas/PaginationMeta'
+        - type: object
+          required: [data, totals]
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/InventoryReportRow'
+            totals:
+              type: object
+              required: [totalQuantity, totalValue]
+              properties:
+                totalQuantity:
+                  type: integer
+                  minimum: 0
+                totalValue:
+                  $ref: '#/components/schemas/Money'
+
+    LowStockReportRow:
+      type: object
+      description: One row of the Low Stock report (FR-RPT-02) — threshold, quantity, shortage.
+      required: [id, sku, name, categoryName, quantity, lowStockThreshold, shortage]
+      properties:
+        id:
+          type: string
+        sku:
+          type: string
+        name:
+          type: string
+        categoryName:
+          type: string
+        quantity:
+          type: integer
+          minimum: 0
+        lowStockThreshold:
+          type: integer
+          minimum: 0
+        shortage:
+          type: integer
+          minimum: 0
+
+    ProductPerformanceRow:
+      type: object
+      description: One row of the Product Performance report (FR-RPT-04) — in/out/net over the range.
+      required: [productId, productSku, productName, in, out, net]
+      properties:
+        productId:
+          type: string
+        productSku:
+          type: string
+        productName:
+          type: string
+        in:
+          type: integer
+          minimum: 0
+        out:
+          type: integer
+          minimum: 0
+        net:
+          type: integer
+
+    ProductPerformanceReport:
+      allOf:
+        - $ref: '#/components/schemas/PaginationMeta'
+        - type: object
+          required: [data, totals]
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/ProductPerformanceRow'
+            totals:
+              type: object
+              required: [totalIn, totalOut, totalNet]
+              properties:
+                totalIn:
+                  type: integer
+                  minimum: 0
+                totalOut:
+                  type: integer
+                  minimum: 0
+                totalNet:
+                  type: integer
+
+    ConsistencyRow:
+      type: object
+      description: One row of the Ledger Consistency report (FR-RPT-05) — ledger sum vs quantity.
+      required: [productId, productSku, productName, ledgerSum, quantity, drift]
+      properties:
+        productId:
+          type: string
+        productSku:
+          type: string
+        productName:
+          type: string
+        ledgerSum:
+          type: integer
+        quantity:
+          type: integer
+          minimum: 0
+        drift:
+          type: boolean
 
     MovementResponse:
       type: object

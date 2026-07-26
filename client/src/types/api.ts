@@ -41,6 +41,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/auth/signup': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Public self-service signup — create an organization + first Admin (SaaS)
+     * @description Provisions a new tenant (organization + its first Admin owner + per-tenant settings + Uncategorized category) atomically, then returns a full session (the owner is logged straight in). Email is globally unique across all tenants — a collision is a 409 DUPLICATE_EMAIL. Strict-limited.
+     */
+    post: operations['signup'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/auth/login': {
     parameters: {
       query?: never;
@@ -55,6 +75,26 @@ export interface paths {
      * @description Failure counter and lockout per BR-33; success resets the counter, stamps lastLoginAt, records a security event. Errors stay generic — the password policy is never revealed on this route (AAD §2).
      */
     post: operations['login'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/auth/google': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Sign in / sign up with Google (GIS ID-token → session)
+     * @description Verifies a Google Identity Services ID token (google-auth-library) and resolves-or-provisions by VERIFIED email: an existing account is linked (googleSub attached) and logged in; an unknown email provisions a new password-less workspace. Backs both the "Sign in" and "Sign up with Google" buttons. Unverified Google email is rejected (401).
+     */
+    post: operations['googleAuth'];
     delete?: never;
     options?: never;
     head?: never;
@@ -425,6 +465,166 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/audit-logs': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * List the audit trail (FR-TXN-04/05) — Admin
+     * @description Paginated audit trail — entity diffs + security events. entityLabel (DN-4) renders entries after hard deletes. Append-only; no mutation route exists (DES-1). Filterable by entity type / entity / actor / ordered date range.
+     */
+    get: operations['listAuditLogs'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/dashboard/summary': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * The single cached dashboard aggregate (FR-DASH-01…04) — Any
+     * @description Every dashboard metric and both chart series in ONE call (FR-DASH-03), served from a per-instance cache (30–60 s TTL, A-2). `asOf` reports when the served snapshot was computed — under a cache hit it can lag by up to one TTL, the stated staleness bound (BR-25). Totals exclude archived products; recent rows and chart series span all products.
+     */
+    get: operations['getDashboardSummary'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/reports/inventory': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Inventory Summary report (FR-RPT-01) — Any
+     * @description Per active product: SKU, name, category, quantity, current cost, and line value (cost × quantity), with a totals row. Filter by category and derived stock status. Values use CURRENT cost (AS-17).
+     */
+    get: operations['getInventoryReport'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/reports/low-stock': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Low Stock report (FR-RPT-02) — Any
+     * @description Active products at or below their threshold, with threshold, quantity, and shortage.
+     */
+    get: operations['getLowStockReport'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/reports/transactions': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Transaction History report (FR-RPT-03, BR-40) — Any
+     * @description Ledger-derived movements over a MANDATORY date range (both bounds required, span ≤ 366 days). Re-running a past period is byte-identical (BR-40). Rows are the ledger row shape.
+     */
+    get: operations['getTransactionsReport'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/reports/product-performance': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Product Performance report (FR-RPT-04) — Any
+     * @description Per-product in/out/net movement totals over a MANDATORY date range (span ≤ 366 days), ledger-derived (BR-40), with an overall totals row.
+     */
+    get: operations['getProductPerformanceReport'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/reports/consistency': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Ledger Consistency report (FR-RPT-05, BR-18) — Admin
+     * @description Per-product reconciliation: ledger sum (Σ quantityChange) vs the materialized quantity, drift flagged. Snapshot-consistent (ARB-05).
+     */
+    get: operations['getConsistencyReport'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/reports/{name}/export': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Stream a report as CSV (FR-RPT-06) — Admin
+     * @description Streams `text/csv` of the FULL filtered dataset for the named report (page/limit ignored, APR-06). Admin-only — Staff receive 403 at the API. Same filters as the named report. The stream writes rows only after a successful first batch; a mid-stream failure destroys the connection rather than emitting a truncated-but-complete-looking file (ERR §7).
+     */
+    get: operations['exportReport'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/settings': {
     parameters: {
       query?: never;
@@ -548,11 +748,23 @@ export interface components {
      * @enum {string}
      */
     Role: 'ADMIN' | 'STAFF';
+    /** @description Public self-service signup (SaaS). BR-32 password policy applies (this is the account's first password). email is globally unique across tenants. */
+    SignupRequest: {
+      organizationName: string;
+      name: string;
+      /** Format: email */
+      email: string;
+      password: string;
+    };
     /** @description 05 §15.1 — non-empty password only; policy never applied at login (AAD §2). */
     LoginRequest: {
       /** Format: email */
       email: string;
       password: string;
+    };
+    /** @description Google Identity Services ID token; verified server-side. */
+    GoogleAuthRequest: {
+      idToken: string;
     };
     /** @description 05 §15.7 — BR-32 policy applies to newPassword. */
     ResetPasswordRequest: {
@@ -866,6 +1078,145 @@ export interface components {
       reason?: 'DAMAGED' | 'LOST' | 'FOUND' | 'COUNT_CORRECTION' | 'RETURN' | 'OTHER';
       note?: string;
     };
+    /** @description An audit-trail row — entity diff or security event (05 §7.6, F7). */
+    AuditLogRow: {
+      id: string;
+      actorId: string;
+      actorName: string;
+      /** @enum {string} */
+      entityType: 'PRODUCT' | 'CATEGORY' | 'USER' | 'SETTINGS' | 'SECURITY';
+      entityId?: string;
+      /** @description Display identity captured at write time (DN-4) — renders after hard deletes. */
+      entityLabel: string;
+      /** @enum {string} */
+      action:
+        | 'CREATE'
+        | 'UPDATE'
+        | 'ARCHIVE'
+        | 'RESTORE'
+        | 'DELETE'
+        | 'LOGIN_SUCCESS'
+        | 'LOGIN_FAILED'
+        | 'LOCKOUT'
+        | 'PASSWORD_RESET_ISSUED'
+        | 'PASSWORD_RESET_COMPLETED'
+        | 'PASSWORD_CHANGED'
+        | 'ROLE_CHANGE'
+        | 'DEACTIVATE'
+        | 'REACTIVATE'
+        | 'TOKEN_REUSE_DETECTED'
+        | 'REPEATED_FORBIDDEN';
+      changes?: {
+        field: string;
+        before?: unknown;
+        after?: unknown;
+      }[];
+      ip?: string;
+      /** Format: date-time */
+      createdAt: string;
+    };
+    /** @description A low/out-of-stock preview entry linking to the product + pre-filled Stock In (FR-DASH-04). */
+    DashboardAlertItem: {
+      id: string;
+      name: string;
+      sku: string;
+      quantity: number;
+      lowStockThreshold: number;
+    };
+    /** @description One UTC day of the stock-movement trend series — in vs out (FR-DASH-02). */
+    MovementTrendPoint: {
+      /** @description UTC day key (YYYY-MM-DD). */
+      date: string;
+      in: number;
+      out: number;
+    };
+    /** @description One UTC day of transaction volume (FR-DASH-02). */
+    TransactionVolumePoint: {
+      /** @description UTC day key (YYYY-MM-DD). */
+      date: string;
+      count: number;
+    };
+    /** @description The single cached dashboard aggregate (05 §7.7, FR-DASH-01…04). */
+    DashboardSummary: {
+      /**
+       * Format: date-time
+       * @description When the served snapshot was computed (may lag by ≤ TTL under cache, BR-25).
+       */
+      asOf: string;
+      totals: {
+        activeProducts: number;
+        inventoryValue: components['schemas']['Money'];
+        unitsInStock: number;
+      };
+      lowStock: {
+        count: number;
+        items: components['schemas']['DashboardAlertItem'][];
+      };
+      outOfStock: {
+        count: number;
+        items: components['schemas']['DashboardAlertItem'][];
+      };
+      /** @description The 10 most recent ledger rows (identical shape to GET /transactions). */
+      recentTransactions: components['schemas']['TransactionRow'][];
+      charts: {
+        movementTrend: components['schemas']['MovementTrendPoint'][];
+        transactionVolume: components['schemas']['TransactionVolumePoint'][];
+      };
+    };
+    /** @description One row of the Inventory Summary report (FR-RPT-01) — line value at current cost. */
+    InventoryReportRow: {
+      id: string;
+      sku: string;
+      name: string;
+      categoryName: string;
+      quantity: number;
+      costPrice: components['schemas']['Money'];
+      lineValue: components['schemas']['Money'];
+      stockStatus: components['schemas']['StockStatus'];
+    };
+    InventoryReport: components['schemas']['PaginationMeta'] & {
+      data: components['schemas']['InventoryReportRow'][];
+      totals: {
+        totalQuantity: number;
+        totalValue: components['schemas']['Money'];
+      };
+    };
+    /** @description One row of the Low Stock report (FR-RPT-02) — threshold, quantity, shortage. */
+    LowStockReportRow: {
+      id: string;
+      sku: string;
+      name: string;
+      categoryName: string;
+      quantity: number;
+      lowStockThreshold: number;
+      shortage: number;
+    };
+    /** @description One row of the Product Performance report (FR-RPT-04) — in/out/net over the range. */
+    ProductPerformanceRow: {
+      productId: string;
+      productSku: string;
+      productName: string;
+      in: number;
+      out: number;
+      net: number;
+    };
+    ProductPerformanceReport: components['schemas']['PaginationMeta'] & {
+      data: components['schemas']['ProductPerformanceRow'][];
+      totals: {
+        totalIn: number;
+        totalOut: number;
+        totalNet: number;
+      };
+    };
+    /** @description One row of the Ledger Consistency report (FR-RPT-05) — ledger sum vs quantity. */
+    ConsistencyRow: {
+      productId: string;
+      productSku: string;
+      productName: string;
+      ledgerSum: number;
+      quantity: number;
+      drift: boolean;
+    };
     /** @description The committed/replayed movement plus the resulting product state (05 §7.5). */
     MovementResponse: {
       transaction: components['schemas']['MovementTransaction'];
@@ -1014,6 +1365,41 @@ export interface operations {
       };
     };
   };
+  signup: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['SignupRequest'];
+      };
+    };
+    responses: {
+      /** @description Workspace created and session established. Also sets the rotating refresh cookie (httpOnly · Secure · SameSite=Strict · Path=/api/v1/auth). */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SessionResponse'];
+        };
+      };
+      400: components['responses']['ValidationError'];
+      /** @description DUPLICATE_EMAIL — that email is already registered (globally unique). */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope'];
+        };
+      };
+      429: components['responses']['RateLimited'];
+    };
+  };
   login: {
     parameters: {
       query?: never;
@@ -1048,6 +1434,58 @@ export interface operations {
       };
       /** @description ACCOUNT_LOCKED — 5 consecutive failures → 15-min lock (BR-33). */
       423: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope'];
+        };
+      };
+      429: components['responses']['RateLimited'];
+    };
+  };
+  googleAuth: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['GoogleAuthRequest'];
+      };
+    };
+    responses: {
+      /** @description Session established. Also sets the rotating refresh cookie (httpOnly · Secure · SameSite=Strict · Path=/api/v1/auth). */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SessionResponse'];
+        };
+      };
+      /** @description Missing credential (VALIDATION_ERROR) or Google sign-in not configured on this server. */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope'];
+        };
+      };
+      /** @description Invalid Google token, or the Google account email is unverified. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope'];
+        };
+      };
+      /** @description DUPLICATE_EMAIL — a provisioning race on the same email. */
+      409: {
         headers: {
           [name: string]: unknown;
         };
@@ -1889,6 +2327,245 @@ export interface operations {
           'application/json': components['schemas']['PaginationMeta'] & {
             data: components['schemas']['TransactionRow'][];
           };
+        };
+      };
+      400: components['responses']['ValidationError'];
+      401: components['responses']['Unauthorized'];
+      403: components['responses']['Forbidden'];
+    };
+  };
+  listAuditLogs: {
+    parameters: {
+      query?: {
+        /** @description 1-based page number (05 §5). */
+        page?: components['parameters']['page'];
+        /** @description Page size — hard cap 100; values above cap → VALIDATION_ERROR (NFR-10). */
+        limit?: components['parameters']['limit'];
+        entityType?: 'PRODUCT' | 'CATEGORY' | 'USER' | 'SETTINGS' | 'SECURITY';
+        entityId?: string;
+        actorId?: string;
+        from?: string;
+        to?: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description List envelope of audit rows. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PaginationMeta'] & {
+            data: components['schemas']['AuditLogRow'][];
+          };
+        };
+      };
+      400: components['responses']['ValidationError'];
+      401: components['responses']['Unauthorized'];
+      403: components['responses']['Forbidden'];
+    };
+  };
+  getDashboardSummary: {
+    parameters: {
+      query?: {
+        /** @description Chart/trend window in days (FR-DASH-02). Default 30. */
+        range?: 7 | 30 | 90;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The dashboard summary snapshot. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DashboardSummary'];
+        };
+      };
+      400: components['responses']['ValidationError'];
+      401: components['responses']['Unauthorized'];
+      403: components['responses']['Forbidden'];
+    };
+  };
+  getInventoryReport: {
+    parameters: {
+      query?: {
+        /** @description 1-based page number (05 §5). */
+        page?: components['parameters']['page'];
+        /** @description Page size — hard cap 100; values above cap → VALIDATION_ERROR (NFR-10). */
+        limit?: components['parameters']['limit'];
+        categoryId?: string;
+        stockStatus?: components['schemas']['StockStatus'];
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Inventory rows + totals. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['InventoryReport'];
+        };
+      };
+      400: components['responses']['ValidationError'];
+      401: components['responses']['Unauthorized'];
+      403: components['responses']['Forbidden'];
+    };
+  };
+  getLowStockReport: {
+    parameters: {
+      query?: {
+        /** @description 1-based page number (05 §5). */
+        page?: components['parameters']['page'];
+        /** @description Page size — hard cap 100; values above cap → VALIDATION_ERROR (NFR-10). */
+        limit?: components['parameters']['limit'];
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Low-stock rows. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PaginationMeta'] & {
+            data: components['schemas']['LowStockReportRow'][];
+          };
+        };
+      };
+      401: components['responses']['Unauthorized'];
+      403: components['responses']['Forbidden'];
+    };
+  };
+  getTransactionsReport: {
+    parameters: {
+      query: {
+        /** @description 1-based page number (05 §5). */
+        page?: components['parameters']['page'];
+        /** @description Page size — hard cap 100; values above cap → VALIDATION_ERROR (NFR-10). */
+        limit?: components['parameters']['limit'];
+        from: string;
+        to: string;
+        type?: 'INITIAL' | 'STOCK_IN' | 'STOCK_OUT' | 'ADJUSTMENT';
+        productId?: string;
+        userId?: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Ledger rows over the range. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PaginationMeta'] & {
+            data: components['schemas']['TransactionRow'][];
+          };
+        };
+      };
+      400: components['responses']['ValidationError'];
+      401: components['responses']['Unauthorized'];
+      403: components['responses']['Forbidden'];
+    };
+  };
+  getProductPerformanceReport: {
+    parameters: {
+      query: {
+        /** @description 1-based page number (05 §5). */
+        page?: components['parameters']['page'];
+        /** @description Page size — hard cap 100; values above cap → VALIDATION_ERROR (NFR-10). */
+        limit?: components['parameters']['limit'];
+        from: string;
+        to: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Per-product performance rows + totals. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProductPerformanceReport'];
+        };
+      };
+      400: components['responses']['ValidationError'];
+      401: components['responses']['Unauthorized'];
+      403: components['responses']['Forbidden'];
+    };
+  };
+  getConsistencyReport: {
+    parameters: {
+      query?: {
+        /** @description 1-based page number (05 §5). */
+        page?: components['parameters']['page'];
+        /** @description Page size — hard cap 100; values above cap → VALIDATION_ERROR (NFR-10). */
+        limit?: components['parameters']['limit'];
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Consistency rows. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PaginationMeta'] & {
+            data: components['schemas']['ConsistencyRow'][];
+          };
+        };
+      };
+      401: components['responses']['Unauthorized'];
+      403: components['responses']['Forbidden'];
+    };
+  };
+  exportReport: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        name: 'inventory' | 'low-stock' | 'transactions' | 'product-performance' | 'consistency';
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description CSV stream of the full filtered dataset. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'text/csv': string;
         };
       };
       400: components['responses']['ValidationError'];

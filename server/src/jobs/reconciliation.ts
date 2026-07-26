@@ -13,6 +13,7 @@
 import type { Types } from 'mongoose';
 
 import type { Logger } from '../lib/logger.js';
+import { runAsSystem } from '../lib/tenantContext.js';
 import { Product } from '../models/Product.js';
 import { Transaction } from '../models/Transaction.js';
 
@@ -33,6 +34,13 @@ export interface ReconciliationDeps {
 }
 
 export async function runReconciliation(deps: ReconciliationDeps): Promise<ReconcileReport> {
+  // The reconciliation invariant is per-product, and productId is globally
+  // unique, so the job runs across ALL tenants at once in system context —
+  // ledger sums group correctly regardless of tenant. (SaaS.)
+  return runAsSystem(() => reconcileAllTenants(deps));
+}
+
+async function reconcileAllTenants(deps: ReconciliationDeps): Promise<ReconcileReport> {
   const sums = await Transaction.aggregate<{ _id: Types.ObjectId; sum: number }>([
     { $group: { _id: '$productId', sum: { $sum: '$quantityChange' } } },
   ]);

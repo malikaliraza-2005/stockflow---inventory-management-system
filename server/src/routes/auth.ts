@@ -2,6 +2,7 @@
  * `/auth` router — path + middleware chain + controller reference ONLY
  * (BEA §2). Chains follow the BEA §5 binding rows exactly:
  *
+ *   POST /signup          Public · strict limiter · validate (SaaS tenant create)
  *   POST /login           Public · strict limiter · validate(15.1)
  *   POST /refresh         Public (cookie) · no body schema
  *   POST /logout          Any   · authenticate (idempotent revoke)
@@ -17,8 +18,10 @@ import type { createAuthController } from '../controllers/authController.js';
 import { validate } from '../middleware/validate.js';
 import {
   changePasswordSchema,
+  googleAuthSchema,
   loginSchema,
   resetPasswordSchema,
+  signupSchema,
 } from '../validation/schemas/auth.js';
 
 export interface AuthRouterDeps {
@@ -31,7 +34,14 @@ export function createAuthRouter(deps: AuthRouterDeps): Router {
   const { controller, authenticate, strictLimiter } = deps;
   const router = Router();
 
+  // SaaS: public self-service tenant creation. Strict-limited like login (an
+  // unauthenticated, resource-creating surface). No `authenticate` — signup
+  // resolves nothing pre-existing; it opens a brand-new tenant.
+  router.post('/signup', strictLimiter, validate(signupSchema), controller.signup);
   router.post('/login', strictLimiter, validate(loginSchema), controller.login);
+  // Google sign-in (GIS ID-token). Public + strict-limited like login; the
+  // service verifies the token and resolves-or-provisions the account.
+  router.post('/google', strictLimiter, validate(googleAuthSchema), controller.googleAuth);
   router.post('/refresh', controller.refresh);
   router.post('/logout', authenticate, controller.logout);
   router.post(

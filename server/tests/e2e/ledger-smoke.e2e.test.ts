@@ -15,10 +15,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { createApp } from '../../src/app.js';
 import { createLogger } from '../../src/lib/logger.js';
+import { runWithTenant } from '../../src/lib/tenantContext.js';
 import { Category } from '../../src/models/Category.js';
 import { Settings } from '../../src/models/Settings.js';
 import { Transaction } from '../../src/models/Transaction.js';
 import { User } from '../../src/models/User.js';
+import { TEST_TENANT_ID, useTestTenant } from '../helpers/tenant.js';
 import { makeTestEnv } from '../helpers/testEnv.js';
 
 const ADMIN_PW = 'admin-secret-pw-1';
@@ -27,22 +29,28 @@ let replSet: MongoMemoryReplSet;
 const logger = createLogger('error', { write: () => undefined });
 const app = () => createApp({ logger, isReady: () => true, env: makeTestEnv() });
 
+useTestTenant(); // every direct model read/write in this suite runs in a tenant
+
 beforeAll(async () => {
   replSet = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
   await mongoose.connect(replSet.getUri());
   await Promise.all([Transaction.init(), Category.init()]);
-  await Settings.create({
-    currency: 'USD',
-    defaultLowStockThreshold: 10,
-    movementWarningThreshold: 1000,
-  });
-  await Category.create({ name: 'Electronics' });
-  await User.create({
-    name: 'Administrator',
-    email: 'admin@example.com',
-    passwordHash: bcrypt.hashSync(ADMIN_PW, 4),
-    role: 'ADMIN',
-    mustChangePassword: false,
+  // Seed the Admin + settings + category inside the tenant (the tenantScope
+  // plugin fails closed on unscoped writes); the Admin's tenantId anchors it all.
+  await runWithTenant(TEST_TENANT_ID, async () => {
+    await Settings.create({
+      currency: 'USD',
+      defaultLowStockThreshold: 10,
+      movementWarningThreshold: 1000,
+    });
+    await Category.create({ name: 'Electronics' });
+    await User.create({
+      name: 'Administrator',
+      email: 'admin@example.com',
+      passwordHash: bcrypt.hashSync(ADMIN_PW, 4),
+      role: 'ADMIN',
+      mustChangePassword: false,
+    });
   });
 });
 

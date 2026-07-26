@@ -19,16 +19,20 @@ import express, { type Express } from 'express';
 import mongoSanitize from 'express-mongo-sanitize';
 import helmet from 'helmet';
 
+import { createAuditLogsController } from './controllers/auditLogsController.js';
 import { createAuthController } from './controllers/authController.js';
 import { createCategoriesController } from './controllers/categoriesController.js';
+import { createDashboardController } from './controllers/dashboardController.js';
 import { createMovementsController } from './controllers/movementsController.js';
 import { createProductsController } from './controllers/productsController.js';
+import { createReportsController } from './controllers/reportsController.js';
 import { createSettingsController } from './controllers/settingsController.js';
 import { createTransactionsController } from './controllers/transactionsController.js';
 import { createUploadController } from './controllers/uploadController.js';
 import { createUsersController } from './controllers/usersController.js';
 import { NotFoundError, ServiceUnavailableError } from './errors/AppError.js';
 import type { Logger } from './lib/logger.js';
+import { createGoogleVerifier, type GoogleVerifier } from './lib/googleVerify.js';
 import { authenticate } from './middleware/authenticate.js';
 import { createAuthorize } from './middleware/authorize.js';
 import { createErrorHandler } from './middleware/errorHandler.js';
@@ -36,19 +40,25 @@ import { createCloudinary } from './lib/cloudinary.js';
 import { httpLogger } from './middleware/httpLogger.js';
 import { createGlobalLimiter, createStrictLimiter } from './middleware/rateLimiters.js';
 import { requestId } from './middleware/requestId.js';
+import { createAuditLogsRouter } from './routes/auditLogs.js';
 import { createAuthRouter } from './routes/auth.js';
 import { createCategoriesRouter } from './routes/categories.js';
+import { createDashboardRouter } from './routes/dashboard.js';
 import { createMovementsRouter } from './routes/movements.js';
 import { createProductsRouter } from './routes/products.js';
+import { createReportsRouter } from './routes/reports.js';
 import { createSettingsRouter } from './routes/settings.js';
 import { createTransactionsRouter } from './routes/transactions.js';
 import { createUploadRouter } from './routes/upload.js';
 import { createUsersRouter } from './routes/users.js';
+import { AuditQueryService } from './services/AuditQueryService.js';
 import { AuditService } from './services/AuditService.js';
 import { AuthService } from './services/AuthService.js';
 import { CategoryService } from './services/CategoryService.js';
+import { DashboardService } from './services/DashboardService.js';
 import { MovementService } from './services/MovementService.js';
 import { ProductService } from './services/ProductService.js';
+import { ReportService } from './services/ReportService.js';
 import { SettingsService } from './services/SettingsService.js';
 import { TransactionService } from './services/TransactionService.js';
 import { UploadService } from './services/UploadService.js';
@@ -60,6 +70,8 @@ export interface AppEnv {
   JWT_ACCESS_SECRET: string;
   ACCESS_TOKEN_TTL: string;
   REFRESH_TOKEN_TTL: string;
+  /** Google OAuth Web client id — absent ⇒ Google sign-in disabled. */
+  GOOGLE_CLIENT_ID?: string | undefined;
   CORS_ORIGIN: string;
   RATE_LIMIT_GLOBAL_MAX: number;
   RATE_LIMIT_GLOBAL_WINDOW_MS: number;
@@ -83,6 +95,9 @@ export interface AppDeps {
   trustProxyHops?: number;
   /** Seconds advertised in Retry-After while not ready (NFR-20). */
   readyRetryAfterSeconds?: number;
+  /** Test seam: inject a stub Google verifier (no real Google call). Prod omits
+   *  it — the verifier is built from GOOGLE_CLIENT_ID instead. */
+  verifyGoogleToken?: GoogleVerifier | undefined;
 }
 
 export function createApp(deps: AppDeps): Express {
@@ -152,6 +167,11 @@ export function createApp(deps: AppDeps): Express {
 
   // ── services + per-route chain builders (#9/#10/#11 live on routes) ────
   const audit = new AuditService(logger);
+  // Prod builds the real verifier from GOOGLE_CLIENT_ID; tests inject a stub via
+  // deps.verifyGoogleToken. Absent both ⇒ /auth/google returns "not available".
+  const googleVerifier =
+    deps.verifyGoogleToken ??
+    (env.GOOGLE_CLIENT_ID ? createGoogleVerifier(env.GOOGLE_CLIENT_ID) : undefined);
   const authService = new AuthService({
     audit,
     logger,
@@ -160,7 +180,14 @@ export function createApp(deps: AppDeps): Express {
       accessTtl: env.ACCESS_TOKEN_TTL,
       refreshTtl: env.REFRESH_TOKEN_TTL,
     },
+    verifyGoogleToken: googleVerifier,
   });
+  logger.info(
+    { googleSignIn: Boolean(googleVerifier) },
+    googleVerifier
+      ? 'auth: Google sign-in ENABLED'
+      : 'auth: Google sign-in DISABLED (no GOOGLE_CLIENT_ID)',
+  );
   const authenticateMw = authenticate(env.JWT_ACCESS_SECRET);
   // App-scoped authorize: ONE BEV-03 denial window per instance (F2 — its
   // first consumer, the /users router).
@@ -189,6 +216,9 @@ export function createApp(deps: AppDeps): Express {
   });
   const settingsService = new SettingsService({ audit });
   const transactionService = new TransactionService();
+  const dashboardService = new DashboardService();
+  const reportService = new ReportService();
+  const auditQueryService = new AuditQueryService();
 
   app.use(
     '/api/v1/auth',
@@ -245,6 +275,33 @@ export function createApp(deps: AppDeps): Express {
     '/api/v1/transactions',
     createTransactionsRouter({
       controller: createTransactionsController(transactionService),
+      authenticate: authenticateMw,
+      authorize,
+    }),
+  );
+
+  app.use(
+    '/api/v1/dashboard',
+    createDashboardRouter({
+      controller: createDashboardController(dashboardService),
+      authenticate: authenticateMw,
+      authorize,
+    }),
+  );
+
+  app.use(
+    '/api/v1/audit-logs',
+    createAuditLogsRouter({
+      controller: createAuditLogsController(auditQueryService),
+      authenticate: authenticateMw,
+      authorize,
+    }),
+  );
+
+  app.use(
+    '/api/v1/reports',
+    createReportsRouter({
+      controller: createReportsController(reportService),
       authenticate: authenticateMw,
       authorize,
     }),

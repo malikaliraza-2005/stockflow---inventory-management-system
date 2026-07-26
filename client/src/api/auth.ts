@@ -10,9 +10,38 @@ import type { components } from '../types/api';
 
 type SessionResponse = components['schemas']['SessionResponse'];
 
+export interface SignupInput {
+  organizationName: string;
+  name: string;
+  email: string;
+  password: string;
+}
+
+/**
+ * POST /auth/signup (SaaS) — public self-service tenant creation. On success the
+ * server provisions the workspace + first Admin and returns a full session, so
+ * this hydrates the stores exactly like login (the new owner is logged straight
+ * in).
+ */
+export async function signup(input: SignupInput): Promise<void> {
+  const response = await api.post<SessionResponse>('/auth/signup', input);
+  applySession(response.data);
+}
+
 /** POST /auth/login — success hydrates authStore + settingsStore (FCM-01). */
 export async function login(email: string, password: string): Promise<void> {
   const response = await api.post<SessionResponse>('/auth/login', { email, password });
+  applySession(response.data);
+}
+
+/**
+ * POST /auth/google — exchange a Google Identity Services ID token for a session.
+ * The server resolves-or-provisions by verified email, so this single call backs
+ * BOTH the "Sign in with Google" and "Sign up with Google" buttons. Success
+ * hydrates the stores exactly like login/signup.
+ */
+export async function loginWithGoogle(idToken: string): Promise<void> {
+  const response = await api.post<SessionResponse>('/auth/google', { idToken });
   applySession(response.data);
 }
 

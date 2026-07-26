@@ -10,6 +10,7 @@
 import mongoose, { Types } from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { TEST_TENANT_ID, useTestTenant } from '../helpers/tenant.js';
 
 import { applyJsonValidators } from '../../src/models/jsonValidators.js';
 import { Transaction } from '../../src/models/Transaction.js';
@@ -19,6 +20,7 @@ const DOC_VALIDATION_FAILURE = 121;
 
 function validRow(overrides: Record<string, unknown> = {}) {
   return {
+    tenantId: TEST_TENANT_ID, // SaaS: native rows must carry the tenant (validator requires it)
     productId: new Types.ObjectId(),
     type: 'STOCK_IN' as const,
     quantityChange: 5,
@@ -27,6 +29,8 @@ function validRow(overrides: Record<string, unknown> = {}) {
     ...overrides,
   };
 }
+
+useTestTenant(); // SaaS: run every test in a fixed tenant context
 
 beforeAll(async () => {
   mongod = await MongoMemoryServer.create();
@@ -45,20 +49,22 @@ afterEach(async () => {
 });
 
 describe('transactions indexes (DBD §2.4)', () => {
-  it('declares the ledger filter/sort index set', async () => {
+  it('declares the ledger filter/sort index set (tenant-leading — SaaS)', async () => {
     const keys = (await Transaction.collection.indexes()).map((i) => JSON.stringify(i.key));
-    expect(keys).toContain(JSON.stringify({ productId: 1, createdAt: -1 }));
-    expect(keys).toContain(JSON.stringify({ createdAt: -1 }));
-    expect(keys).toContain(JSON.stringify({ userId: 1, createdAt: -1 }));
-    expect(keys).toContain(JSON.stringify({ type: 1, createdAt: -1 }));
+    expect(keys).toContain(JSON.stringify({ tenantId: 1, productId: 1, createdAt: -1 }));
+    expect(keys).toContain(JSON.stringify({ tenantId: 1, createdAt: -1 }));
+    expect(keys).toContain(JSON.stringify({ tenantId: 1, userId: 1, createdAt: -1 }));
+    expect(keys).toContain(JSON.stringify({ tenantId: 1, type: 1, createdAt: -1 }));
   });
 
-  it('idempotencyKey index is unique AND sparse (ARB-02 backstop)', async () => {
+  it('idempotencyKey index is per-tenant unique AND partial (ARB-02 backstop)', async () => {
+    // A compound "sparse" index would not skip key-less rows (tenantId is always
+    // present), so the movement-replay backstop is a PARTIAL unique index.
     const idx = (await Transaction.collection.indexes()).find(
-      (i) => JSON.stringify(i.key) === JSON.stringify({ idempotencyKey: 1 }),
+      (i) => JSON.stringify(i.key) === JSON.stringify({ tenantId: 1, idempotencyKey: 1 }),
     );
     expect(idx?.unique).toBe(true);
-    expect(idx?.sparse).toBe(true);
+    expect(idx?.partialFilterExpression).toEqual({ idempotencyKey: { $type: 'string' } });
   });
 
   it('rejects a duplicate idempotencyKey (BR-20)', async () => {

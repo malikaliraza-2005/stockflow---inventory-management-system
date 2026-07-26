@@ -9,6 +9,7 @@ import mongoose, { Types } from 'mongoose';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { TEST_TENANT_ID, useTestTenant } from '../helpers/tenant.js';
 
 import { createApp } from '../../src/app.js';
 import { createLogger } from '../../src/lib/logger.js';
@@ -50,6 +51,8 @@ function products() {
   if (!db) throw new Error('no connection');
   return db.collection('products');
 }
+
+useTestTenant(); // SaaS: run every test in a fixed tenant context
 
 beforeAll(async () => {
   replSet = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
@@ -150,8 +153,8 @@ describe('GET /categories (withCounts §9.9)', () => {
     const admin = await loginAs(app, 'admin@example.com');
     const cat = await Category.create({ name: 'Counted' });
     await products().insertMany([
-      { categoryId: cat._id, isArchived: false, sku: 'CNT-1' }, // unique sku: the
-      { categoryId: cat._id, isArchived: true, sku: 'CNT-2' }, // {sku} unique index is real now (F4)
+      { tenantId: TEST_TENANT_ID, categoryId: cat._id, isArchived: false, sku: 'CNT-1' }, // unique sku: the
+      { tenantId: TEST_TENANT_ID, categoryId: cat._id, isArchived: true, sku: 'CNT-2' }, // {sku} unique index is real now (F4)
     ]);
 
     const res = await request(app)
@@ -221,7 +224,11 @@ describe('DELETE /categories/:id (BR-27 T5 / BR-28)', () => {
     await seedUser({ email: 'admin@example.com', role: 'ADMIN' });
     const admin = await loginAs(app, 'admin@example.com');
     const cat = await Category.create({ name: 'Used' });
-    await products().insertOne({ categoryId: cat._id, isArchived: false });
+    await products().insertOne({
+      tenantId: TEST_TENANT_ID,
+      categoryId: cat._id,
+      isArchived: false,
+    });
 
     const res = await request(app)
       .delete(`/api/v1/categories/${cat._id}`)
@@ -237,8 +244,8 @@ describe('DELETE /categories/:id (BR-27 T5 / BR-28)', () => {
     const source = await Category.create({ name: 'Source' });
     const target = await Category.create({ name: 'Uncategorized', isSystem: true });
     await products().insertMany([
-      { categoryId: source._id, isArchived: false, sku: 'RS-1' },
-      { categoryId: source._id, isArchived: true, sku: 'RS-2' },
+      { tenantId: TEST_TENANT_ID, categoryId: source._id, isArchived: false, sku: 'RS-1' },
+      { tenantId: TEST_TENANT_ID, categoryId: source._id, isArchived: true, sku: 'RS-2' },
     ]);
 
     const res = await request(app)

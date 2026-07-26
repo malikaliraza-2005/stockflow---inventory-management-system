@@ -14,10 +14,13 @@ const clientEnvSchema = z.object({
   VITE_API_BASE_URL: z.url({
     error: 'must be the API origin URL for this environment, e.g. https://api.example.com',
   }),
+  // Google sign-in OAuth Web client id (public). Absent ⇒ no Google button.
+  VITE_GOOGLE_CLIENT_ID: z.string().optional(),
 });
 
 export interface AppConfig {
   readonly apiBaseUrl: string;
+  readonly googleClientId?: string;
 }
 
 /** Validate a raw env source. Exported for tests; app code uses `getConfig()`. */
@@ -32,7 +35,12 @@ export function loadClientConfig(source: Record<string, unknown>): AppConfig {
         'Define the variable(s) in client/.env — see client/.env.example.',
     );
   }
-  return { apiBaseUrl: result.data.VITE_API_BASE_URL };
+  return {
+    apiBaseUrl: result.data.VITE_API_BASE_URL,
+    ...(result.data.VITE_GOOGLE_CLIENT_ID
+      ? { googleClientId: result.data.VITE_GOOGLE_CLIENT_ID }
+      : {}),
+  };
 }
 
 let cached: AppConfig | undefined;

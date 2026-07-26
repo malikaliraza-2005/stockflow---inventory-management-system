@@ -13,7 +13,10 @@ import { ValidationError, type FieldIssue } from '../errors/AppError.js';
 
 const OBJECT_ID_PATTERN = /^[0-9a-fA-F]{24}$/;
 
-export function validate(schema: z.ZodType, target: 'body' | 'query' = 'body'): RequestHandler {
+export function validate(
+  schema: z.ZodType,
+  target: 'body' | 'query' | 'params' = 'body',
+): RequestHandler {
   return (req, _res, next) => {
     const result = schema.safeParse(req[target]);
     if (!result.success) {
