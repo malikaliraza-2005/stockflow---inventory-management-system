@@ -21,6 +21,9 @@ RUN npm run build
 # The app reads process.env.PORT (default 3000); Back4App sets PORT.
 EXPOSE 3000
 
-# Release phase: idempotent seed (Admin/settings/Uncategorized) then boot.
-# Seed is safe to re-run; a single staging instance cannot race the upsert.
-CMD ["sh", "-c", "node dist/seeds/run.js && node dist/index.js"]
+# Boot the server IMMEDIATELY (it binds the port and answers /health before Mongo
+# connects, so the platform health check passes fast) and run the idempotent
+# release seed in the BACKGROUND. `&&` would hold the port closed until the seed
+# finished, which on a cold start (Atlas connect + index/validator/provision) can
+# exceed a platform's health-check grace window → "container exited before healthy".
+CMD ["sh", "-c", "node dist/seeds/run.js & node dist/index.js"]
