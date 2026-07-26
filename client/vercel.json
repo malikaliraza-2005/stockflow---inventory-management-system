@@ -1,6 +1,12 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "rewrites": [{ "source": "/((?!assets/).*)", "destination": "/index.html" }],
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "https://stockflow-inventory-management-system.onrender.com/api/$1"
+    },
+    { "source": "/((?!assets/).*)", "destination": "/index.html" }
+  ],
   "headers": [
     {
       "source": "/assets/(.*)",
