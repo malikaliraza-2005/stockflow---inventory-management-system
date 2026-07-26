@@ -17,8 +17,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { createApp } from '../../src/app.js';
 import { createLogger } from '../../src/lib/logger.js';
+import { runWithTenant } from '../../src/lib/tenantContext.js';
 import { Settings } from '../../src/models/Settings.js';
 import { User } from '../../src/models/User.js';
+import { TEST_TENANT_ID, useTestTenant } from '../helpers/tenant.js';
 import { makeTestEnv } from '../helpers/testEnv.js';
 
 const ADMIN_PW = 'admin-secret-pw-1';
@@ -35,20 +37,26 @@ function cookieOf(res: request.Response): string {
   return cookies.find((c) => c.startsWith('refreshToken=')) as string;
 }
 
+useTestTenant(); // every direct model read/write in this suite runs in a tenant
+
 beforeAll(async () => {
   replSet = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
   await mongoose.connect(replSet.getUri());
-  await Settings.create({
-    currency: 'USD',
-    defaultLowStockThreshold: 10,
-    movementWarningThreshold: 1000,
-  });
-  await User.create({
-    name: 'Administrator',
-    email: 'admin@example.com',
-    passwordHash: bcrypt.hashSync(ADMIN_PW, 4),
-    role: 'ADMIN',
-    mustChangePassword: false,
+  // Seed the Admin + settings inside the tenant (the tenantScope plugin fails
+  // closed on unscoped writes); the Admin's tenantId anchors every request.
+  await runWithTenant(TEST_TENANT_ID, async () => {
+    await Settings.create({
+      currency: 'USD',
+      defaultLowStockThreshold: 10,
+      movementWarningThreshold: 1000,
+    });
+    await User.create({
+      name: 'Administrator',
+      email: 'admin@example.com',
+      passwordHash: bcrypt.hashSync(ADMIN_PW, 4),
+      role: 'ADMIN',
+      mustChangePassword: false,
+    });
   });
 });
 
