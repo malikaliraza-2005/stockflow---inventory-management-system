@@ -38,7 +38,11 @@ export function createAuthController(deps: AuthControllerDeps) {
     return {
       httpOnly: true,
       secure: secureCookies,
-      sameSite: 'strict',
+      // A cross-site SPA (client on a different domain than the API) needs
+      // SameSite=None for the refresh cookie to be sent — it MUST pair with
+      // Secure (HTTPS). Locally (http, secureCookies=false) keep Strict, which
+      // is correct for same-origin dev and avoids the None-without-Secure reject.
+      sameSite: secureCookies ? 'none' : 'strict',
       path: COOKIE_PATH,
       ...(expires ? { expires } : {}),
     };
