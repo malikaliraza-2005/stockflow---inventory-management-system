@@ -68,6 +68,22 @@ const envSchema = z
       .preprocess((v) => (v === 'true' ? true : v === 'false' ? false : v), z.boolean())
       .default(false),
 
+    // AI Inventory Assistant — ships DARK. CHAT_ENABLED gates the route AND the
+    // `chatEnabled` flag on the session payload, so the client hides the entry
+    // point too. Off ⇒ every LLM_* value below is irrelevant (see the refines).
+    CHAT_ENABLED: z
+      .preprocess((v) => (v === 'true' ? true : v === 'false' ? false : v), z.boolean())
+      .default(false),
+    LLM_PROVIDER: z.enum(['fake', 'gemini']).default('fake'),
+    LLM_MODEL: z.string().min(1).default('gemini-2.5-flash'),
+    /** Secret (SEC-10). Never VITE_-prefixed — this value never reaches a browser. */
+    LLM_API_KEY: z.string().min(1).optional(),
+    LLM_MAX_TOKENS: z.coerce.number().int().min(16).max(4096).default(256),
+    LLM_TIMEOUT_MS: z.coerce.number().int().min(500).max(30_000).default(8_000),
+    /** Tighter than the global 300/15min, and keyed on the USER (see routes/chat.ts). */
+    RATE_LIMIT_CHAT_MAX: z.coerce.number().int().positive().default(30),
+    RATE_LIMIT_CHAT_WINDOW_MS: z.coerce.number().int().positive().default(900_000),
+
     // Observability
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
     SENTRY_DSN: z.url().optional(),
@@ -75,6 +91,24 @@ const envSchema = z
   .refine((e) => e.JWT_ACCESS_SECRET !== e.JWT_REFRESH_SECRET, {
     message: 'JWT_ACCESS_SECRET and JWT_REFRESH_SECRET must differ (SEC-01)',
     path: ['JWT_REFRESH_SECRET'],
+  })
+  // Both chat refines are conditioned on CHAT_ENABLED so "ship dark" actually
+  // works: production boots with the feature off and no LLM configuration at
+  // all, and only the flip to `true` demands a real provider.
+  .refine(
+    (e) =>
+      !e.CHAT_ENABLED ||
+      e.LLM_PROVIDER !== 'fake' ||
+      (e.NODE_ENV !== 'production' && e.NODE_ENV !== 'staging'),
+    {
+      message:
+        'must be a real provider when CHAT_ENABLED=true outside development/test — the fake provider answers nothing',
+      path: ['LLM_PROVIDER'],
+    },
+  )
+  .refine((e) => !e.CHAT_ENABLED || e.LLM_PROVIDER === 'fake' || Boolean(e.LLM_API_KEY), {
+    message: 'is required when CHAT_ENABLED=true with a real LLM_PROVIDER',
+    path: ['LLM_API_KEY'],
   });
 
 export type Env = z.infer<typeof envSchema>;

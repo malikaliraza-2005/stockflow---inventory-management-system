@@ -29,6 +29,7 @@ export function applySession(payload: SessionResponse): string {
   useSettingsStore.getState().setSettings({
     currency: payload.settings.systemCurrency,
     movementWarningThreshold: payload.settings.movementWarningThreshold,
+    chatEnabled: payload.settings.chatEnabled,
   });
   return payload.accessToken;
 }

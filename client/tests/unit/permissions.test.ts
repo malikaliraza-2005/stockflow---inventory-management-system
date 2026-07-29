@@ -26,6 +26,9 @@ const EXPECTED: Record<Capability, { ADMIN: boolean; STAFF: boolean }> = {
   'users.manage': { ADMIN: true, STAFF: false },
   'settings.manage': { ADMIN: true, STAFF: false },
   'profile.own': { ADMIN: true, STAFF: true },
+  // The AI assistant is both-roles; per-intent capabilities (products.view /
+  // transactions.view) are checked again inside ChatService.dispatch.
+  'chat.use': { ADMIN: true, STAFF: true },
 };
 
 describe('permission matrix semantics (SRS §5.2)', () => {

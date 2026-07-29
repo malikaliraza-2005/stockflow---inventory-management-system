@@ -30,6 +30,7 @@ export const PERMISSION_MATRIX = {
   'users.manage': ['ADMIN'],
   'settings.manage': ['ADMIN'],
   'profile.own': ['ADMIN', 'STAFF'],
+  'chat.use': ['ADMIN', 'STAFF'],
 } as const;
 // END PERMISSION MATRIX
 

@@ -689,6 +689,47 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/chat': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Ask the read-only AI Inventory Assistant a question — Any
+     * @description One question in, one deterministic answer out. An LLM is used for exactly one thing — turning the sentence into a validated intent + slots — after which a hand-written handler queries existing services and a TEMPLATE renders the reply. No generated text ever contains a number, so a stock figure cannot be hallucinated. Read-only: there is no write path.
+     *     Mounted only when CHAT_ENABLED is true; otherwise the route 404s and `settings.chatEnabled` on the session payload is false so the client hides the entry point. Provider outage, timeout or quota exhaustion is a 503 SERVICE_UNAVAILABLE with Retry-After — never a 500 and never a hang.
+     */
+    post: operations['askAssistant'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/chat/feedback': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Rate an answer thumbs up/down — Any
+     * @description Recorded as a LOG EVENT keyed on the answer's `correlationId`, which joins it to that message's structured record. No collection, no CRUD — thumbs are the cheapest labelled data available for improving intent classification.
+     */
+    post: operations['rateAssistantAnswer'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -991,12 +1032,108 @@ export interface components {
       role: components['schemas']['Role'];
       mustChangePassword: boolean;
     };
+    ChatAskRequest: {
+      /**
+       * Format: uuid
+       * @description Client-generated per chat session. A LOG FIELD only — Phase 1 has no memory and no Conversation collection. It costs one field and it is what makes question SEQUENCES recoverable, which is the highest-signal input for choosing the next intent to build.
+       */
+      conversationId: string;
+      /** @description Bounded deliberately: without the cap a pasted block becomes a multi-kilobyte prompt, and token cost, latency and free-tier quota all scale with input that was never meant to be accepted. */
+      question: string;
+    };
+    ChatFeedbackRequest: {
+      /** @description The `correlationId` returned in the answer being rated. */
+      correlationId: string;
+      /** @enum {string} */
+      rating: 'up' | 'down';
+    };
+    /** @description A discriminated union on `intent` — never `{summary, rows: unknown[]}`. Untyped rows would mean no contract, no generated client types, and per-intent rendering guesswork. Row shapes are the EXISTING ProductRow / TransactionRow shapes verbatim, so the client reuses its product table components and money stays a 2-dp string end to end. */
+    ChatResponse:
+      | components['schemas']['ChatProductLookupResult']
+      | components['schemas']['ChatLowStockResult']
+      | components['schemas']['ChatMovementHistoryResult']
+      | components['schemas']['ChatUnsupportedResult']
+      | components['schemas']['ChatClarifyResult'];
+    ChatResultBase: {
+      /** @description Rendered by a server-side template. Never model-generated. */
+      summary: string;
+      /** @description Clickable rephrase suggestions. Zero-result, too-many-result and unsupported replies all carry a recovery path — that is what turns a dead end into a rephrase. */
+      examples: string[];
+      /** @description Server-minted per message (NOT the request's X-Correlation-Id, which honours a client-supplied header and so could be spoofed or collided). This is the key POST /chat/feedback joins on. */
+      correlationId: string;
+    };
+    ChatProductLookupResult: components['schemas']['ChatResultBase'] & {
+      /** @enum {string} */
+      intent: 'product_lookup';
+      products: components['schemas']['ProductRow'][];
+      /** @description Total MATCHES — `products` is capped at 10 and the summary says so. */
+      totalCount: number;
+    } & {
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      intent: 'product_lookup';
+    };
+    ChatLowStockResult: components['schemas']['ChatResultBase'] & {
+      /** @enum {string} */
+      intent: 'low_stock';
+      /** @description 0 < quantity <= lowStockThreshold. */
+      low: components['schemas']['ProductRow'][];
+      /** @description quantity == 0 — reported SEPARATELY because it is strictly more urgent, and folding it into one total loses that. */
+      out: components['schemas']['ProductRow'][];
+    } & {
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      intent: 'low_stock';
+    };
+    ChatMovementHistoryResult: components['schemas']['ChatResultBase'] & {
+      /** @enum {string} */
+      intent: 'movement_history';
+      product: components['schemas']['ProductRow'];
+      movements: components['schemas']['TransactionRow'][];
+      totalCount: number;
+    } & {
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      intent: 'movement_history';
+    };
+    ChatUnsupportedResult: components['schemas']['ChatResultBase'] & {
+      /** @enum {string} */
+      intent: 'unsupported';
+      /** @description What the assistant CAN answer — a first-class reply, not an error. */
+      capabilities: string[];
+    } & {
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      intent: 'unsupported';
+    };
+    ChatClarifyResult: components['schemas']['ChatResultBase'] & {
+      /** @enum {string} */
+      intent: 'clarify';
+      /** @description Products a history question matched ambiguously. Listed rather than silently resolved — a history for the wrong product is indistinguishable on screen from the right one. */
+      candidates: components['schemas']['ProductRow'][];
+    } & {
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      intent: 'clarify';
+    };
     /** @description FCM-01 (RATIFIED 2026-07-23): read-only display constants in the session payload — Staff has no other approved endpoint for them (GET /settings stays Admin-only). Additive, EXT-01-compliant; exposes no settings management. AAD §12 · SMA §5. */
     SessionSettings: {
       /** @description ISO 4217 code — feeds lib/formatters. */
       systemCurrency: string;
       /** @description Large-movement confirm threshold (BR-15) for the movement dialogs. */
       movementWarningThreshold: number;
+      /** @description CHAT_ENABLED — the AI assistant's kill switch. Environment-derived, not a tenant preference. The client hides the assistant entry point when false rather than offering a button that 404s. */
+      chatEnabled: boolean;
     };
     /** @description Login/refresh 200 — access token + profile + FCM-01 display constants. */
     SessionResponse: {
@@ -2678,6 +2815,62 @@ export interface operations {
           'application/json': components['schemas']['ErrorEnvelope'];
         };
       };
+      404: components['responses']['NotFound'];
+    };
+  };
+  askAssistant: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ChatAskRequest'];
+      };
+    };
+    responses: {
+      /** @description The answer, discriminated on `intent`. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ChatResponse'];
+        };
+      };
+      400: components['responses']['ValidationError'];
+      401: components['responses']['Unauthorized'];
+      403: components['responses']['Forbidden'];
+      404: components['responses']['NotFound'];
+      429: components['responses']['RateLimited'];
+      503: components['responses']['ServiceUnavailable'];
+    };
+  };
+  rateAssistantAnswer: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ChatFeedbackRequest'];
+      };
+    };
+    responses: {
+      /** @description Recorded. No body. */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      400: components['responses']['ValidationError'];
+      401: components['responses']['Unauthorized'];
+      403: components['responses']['Forbidden'];
       404: components['responses']['NotFound'];
     };
   };

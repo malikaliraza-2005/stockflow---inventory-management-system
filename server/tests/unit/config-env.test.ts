@@ -106,3 +106,85 @@ describe('loadEnv (NFR-28 fail-fast)', () => {
     expect(() => loadEnv({ ...validEnv(), NODE_ENV: 'prod' })).toThrowError(/NODE_ENV/);
   });
 });
+
+describe('AI Inventory Assistant configuration', () => {
+  it('defaults to OFF with the fake provider — the feature ships dark', () => {
+    const env = loadEnv(validEnv());
+
+    expect(env.CHAT_ENABLED).toBe(false);
+    expect(env.LLM_PROVIDER).toBe('fake');
+    expect(env.LLM_MAX_TOKENS).toBe(256);
+    expect(env.LLM_TIMEOUT_MS).toBe(8_000);
+    expect(env.RATE_LIMIT_CHAT_MAX).toBe(30);
+    expect(env.LLM_API_KEY).toBeUndefined();
+  });
+
+  it('coerces the boolean and numeric forms platforms actually supply', () => {
+    const env = loadEnv({
+      ...validEnv(),
+      CHAT_ENABLED: 'true',
+      LLM_MAX_TOKENS: '512',
+      LLM_TIMEOUT_MS: '3000',
+    });
+    expect(env.CHAT_ENABLED).toBe(true);
+    expect(env.LLM_MAX_TOKENS).toBe(512);
+    expect(env.LLM_TIMEOUT_MS).toBe(3_000);
+  });
+
+  it('boots production with chat OFF and NO llm configuration at all (ship dark)', () => {
+    expect(() =>
+      loadEnv({ ...validEnv(), NODE_ENV: 'production', CHAT_ENABLED: 'false' }),
+    ).not.toThrow();
+  });
+
+  it('refuses the fake provider once chat is enabled in staging or production', () => {
+    for (const nodeEnv of ['staging', 'production']) {
+      expect(() =>
+        loadEnv({
+          ...validEnv(),
+          NODE_ENV: nodeEnv,
+          CHAT_ENABLED: 'true',
+          LLM_PROVIDER: 'fake',
+        }),
+      ).toThrowError(/LLM_PROVIDER/);
+    }
+  });
+
+  it('allows the fake provider with chat enabled in development', () => {
+    const env = loadEnv({ ...validEnv(), NODE_ENV: 'development', CHAT_ENABLED: 'true' });
+    expect(env.LLM_PROVIDER).toBe('fake');
+  });
+
+  it('demands a key for a real provider — WITHOUT echoing it', () => {
+    expect(() =>
+      loadEnv({ ...validEnv(), CHAT_ENABLED: 'true', LLM_PROVIDER: 'gemini' }),
+    ).toThrowError(/LLM_API_KEY/);
+
+    const key = 'AIza-secret-value-should-never-be-logged';
+    let message = '';
+    try {
+      loadEnv({ ...validEnv(), CHAT_ENABLED: 'true', LLM_PROVIDER: 'gemini', LLM_API_KEY: '  ' });
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toMatch(/LLM_API_KEY/);
+    expect(message).not.toContain(key);
+  });
+
+  it('accepts a fully configured real provider', () => {
+    const env = loadEnv({
+      ...validEnv(),
+      NODE_ENV: 'production',
+      CHAT_ENABLED: 'true',
+      LLM_PROVIDER: 'gemini',
+      LLM_MODEL: 'gemini-2.5-flash',
+      LLM_API_KEY: 'AIza-test-key',
+    });
+    expect(env.CHAT_ENABLED).toBe(true);
+    expect(env.LLM_PROVIDER).toBe('gemini');
+  });
+
+  it('rejects an unknown provider id by name', () => {
+    expect(() => loadEnv({ ...validEnv(), LLM_PROVIDER: 'ollama' })).toThrowError(/LLM_PROVIDER/);
+  });
+});

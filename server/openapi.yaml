@@ -46,6 +46,14 @@ tags:
     description: Reports & export — 05 §7.8 (F10). Five paginated on-screen reports (both-roles; consistency Admin) plus an Admin-only CSV export streaming the full filtered dataset (ERR §7). Historical reports are ledger-derived and byte-reproducible (BR-40); snapshot reports value stock at current cost (AS-17).
   - name: settings
     description: System settings singleton — 05 §7.10 (F11). Admin-only; Staff reads the same display constants from the session payload (FCM-01). defaultLowStockThreshold is copied into products at creation (DN-3) — edits never rewrite existing products.
+  - name: chat
+    description: >-
+      Read-only AI Inventory Assistant. The LLM performs intent classification
+      with slot filling — nothing else. Handlers call existing services on the
+      request's own async chain (so tenant scoping stays live), and every reply
+      is rendered from deterministic templates over the real result set, which
+      is what makes a hallucinated stock figure structurally impossible. Both
+      roles; gated by CHAT_ENABLED.
   - name: uploads
     description: Cloudinary signed uploads — 05 §7.9 (F5). Admin-only. The server signs an upload scoped to ims/prod; the browser uploads directly (SEC-08). Destroy is folder-scoped (APR-03). Images are attached via the product body, not here.
 
@@ -1515,6 +1523,76 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /chat:
+    post:
+      tags: [chat]
+      operationId: askAssistant
+      summary: Ask the read-only AI Inventory Assistant a question — Any
+      description: >-
+        One question in, one deterministic answer out. An LLM is used for exactly
+        one thing — turning the sentence into a validated intent + slots —
+        after which a hand-written handler queries existing services and a
+        TEMPLATE renders the reply. No generated text ever contains a number, so
+        a stock figure cannot be hallucinated. Read-only: there is no write path.
+
+        Mounted only when CHAT_ENABLED is true; otherwise the route 404s and
+        `settings.chatEnabled` on the session payload is false so the client
+        hides the entry point. Provider outage, timeout or quota exhaustion is a
+        503 SERVICE_UNAVAILABLE with Retry-After — never a 500 and never a hang.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatAskRequest'
+      responses:
+        '200':
+          description: The answer, discriminated on `intent`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /chat/feedback:
+    post:
+      tags: [chat]
+      operationId: rateAssistantAnswer
+      summary: Rate an answer thumbs up/down — Any
+      description: >-
+        Recorded as a LOG EVENT keyed on the answer's `correlationId`, which
+        joins it to that message's structured record. No collection, no CRUD —
+        thumbs are the cheapest labelled data available for improving intent
+        classification.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatFeedbackRequest'
+      responses:
+        '204':
+          description: Recorded. No body.
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
 components:
   securitySchemes:
     cookieAuth:
@@ -2249,6 +2327,175 @@ components:
         mustChangePassword:
           type: boolean
 
+    ChatAskRequest:
+      type: object
+      required: [conversationId, question]
+      properties:
+        conversationId:
+          type: string
+          format: uuid
+          description: >-
+            Client-generated per chat session. A LOG FIELD only — Phase 1 has no
+            memory and no Conversation collection. It costs one field and it is
+            what makes question SEQUENCES recoverable, which is the highest-signal
+            input for choosing the next intent to build.
+        question:
+          type: string
+          minLength: 2
+          maxLength: 500
+          description: >-
+            Bounded deliberately: without the cap a pasted block becomes a
+            multi-kilobyte prompt, and token cost, latency and free-tier quota
+            all scale with input that was never meant to be accepted.
+
+    ChatFeedbackRequest:
+      type: object
+      required: [correlationId, rating]
+      properties:
+        correlationId:
+          type: string
+          maxLength: 128
+          description: The `correlationId` returned in the answer being rated.
+        rating:
+          type: string
+          enum: [up, down]
+
+    ChatResponse:
+      description: >-
+        A discriminated union on `intent` — never `{summary, rows: unknown[]}`.
+        Untyped rows would mean no contract, no generated client types, and
+        per-intent rendering guesswork. Row shapes are the EXISTING ProductRow /
+        TransactionRow shapes verbatim, so the client reuses its product table
+        components and money stays a 2-dp string end to end.
+      oneOf:
+        - $ref: '#/components/schemas/ChatProductLookupResult'
+        - $ref: '#/components/schemas/ChatLowStockResult'
+        - $ref: '#/components/schemas/ChatMovementHistoryResult'
+        - $ref: '#/components/schemas/ChatUnsupportedResult'
+        - $ref: '#/components/schemas/ChatClarifyResult'
+      discriminator:
+        propertyName: intent
+        mapping:
+          product_lookup: '#/components/schemas/ChatProductLookupResult'
+          low_stock: '#/components/schemas/ChatLowStockResult'
+          movement_history: '#/components/schemas/ChatMovementHistoryResult'
+          unsupported: '#/components/schemas/ChatUnsupportedResult'
+          clarify: '#/components/schemas/ChatClarifyResult'
+
+    ChatResultBase:
+      type: object
+      required: [summary, examples, correlationId]
+      properties:
+        summary:
+          type: string
+          description: Rendered by a server-side template. Never model-generated.
+        examples:
+          type: array
+          description: >-
+            Clickable rephrase suggestions. Zero-result, too-many-result and
+            unsupported replies all carry a recovery path — that is what turns a
+            dead end into a rephrase.
+          items:
+            type: string
+        correlationId:
+          type: string
+          description: >-
+            Server-minted per message (NOT the request's X-Correlation-Id, which
+            honours a client-supplied header and so could be spoofed or collided).
+            This is the key POST /chat/feedback joins on.
+
+    ChatProductLookupResult:
+      allOf:
+        - $ref: '#/components/schemas/ChatResultBase'
+        - type: object
+          required: [intent, products, totalCount]
+          properties:
+            intent:
+              type: string
+              enum: [product_lookup]
+            products:
+              type: array
+              items:
+                $ref: '#/components/schemas/ProductRow'
+            totalCount:
+              type: integer
+              minimum: 0
+              description: Total MATCHES — `products` is capped at 10 and the summary says so.
+
+    ChatLowStockResult:
+      allOf:
+        - $ref: '#/components/schemas/ChatResultBase'
+        - type: object
+          required: [intent, low, out]
+          properties:
+            intent:
+              type: string
+              enum: [low_stock]
+            low:
+              type: array
+              description: 0 < quantity <= lowStockThreshold.
+              items:
+                $ref: '#/components/schemas/ProductRow'
+            out:
+              type: array
+              description: >-
+                quantity == 0 — reported SEPARATELY because it is strictly more
+                urgent, and folding it into one total loses that.
+              items:
+                $ref: '#/components/schemas/ProductRow'
+
+    ChatMovementHistoryResult:
+      allOf:
+        - $ref: '#/components/schemas/ChatResultBase'
+        - type: object
+          required: [intent, product, movements, totalCount]
+          properties:
+            intent:
+              type: string
+              enum: [movement_history]
+            product:
+              $ref: '#/components/schemas/ProductRow'
+            movements:
+              type: array
+              items:
+                $ref: '#/components/schemas/TransactionRow'
+            totalCount:
+              type: integer
+              minimum: 0
+
+    ChatUnsupportedResult:
+      allOf:
+        - $ref: '#/components/schemas/ChatResultBase'
+        - type: object
+          required: [intent, capabilities]
+          properties:
+            intent:
+              type: string
+              enum: [unsupported]
+            capabilities:
+              type: array
+              description: What the assistant CAN answer — a first-class reply, not an error.
+              items:
+                type: string
+
+    ChatClarifyResult:
+      allOf:
+        - $ref: '#/components/schemas/ChatResultBase'
+        - type: object
+          required: [intent, candidates]
+          properties:
+            intent:
+              type: string
+              enum: [clarify]
+            candidates:
+              type: array
+              description: >-
+                Products a history question matched ambiguously. Listed rather
+                than silently resolved — a history for the wrong product is
+                indistinguishable on screen from the right one.
+              items:
+                $ref: '#/components/schemas/ProductRow'
+
     SessionSettings:
       type: object
       description: >-
@@ -2256,7 +2503,7 @@ components:
         session payload — Staff has no other approved endpoint for them
         (GET /settings stays Admin-only). Additive, EXT-01-compliant;
         exposes no settings management. AAD §12 · SMA §5.
-      required: [systemCurrency, movementWarningThreshold]
+      required: [systemCurrency, movementWarningThreshold, chatEnabled]
       properties:
         systemCurrency:
           type: string
@@ -2265,6 +2512,12 @@ components:
           type: integer
           minimum: 1
           description: Large-movement confirm threshold (BR-15) for the movement dialogs.
+        chatEnabled:
+          type: boolean
+          description: >-
+            CHAT_ENABLED — the AI assistant's kill switch. Environment-derived,
+            not a tenant preference. The client hides the assistant entry point
+            when false rather than offering a button that 404s.
 
     SessionResponse:
       type: object

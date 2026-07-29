@@ -11,6 +11,12 @@ export interface SettingsState {
   currency: string | null;
   defaultLowStockThreshold: number | null;
   movementWarningThreshold: number | null;
+  /**
+   * CHAT_ENABLED from the server. Defaults to FALSE so the assistant entry
+   * point stays hidden until a session says otherwise — a nav item that 404s is
+   * worse than no nav item.
+   */
+  chatEnabled: boolean;
   loaded: boolean;
 }
 
@@ -19,6 +25,7 @@ export interface SettingsActions {
     currency?: string;
     defaultLowStockThreshold?: number;
     movementWarningThreshold?: number;
+    chatEnabled?: boolean;
   }): void;
   clear(): void;
 }
@@ -27,6 +34,7 @@ const EMPTY: SettingsState = {
   currency: null,
   defaultLowStockThreshold: null,
   movementWarningThreshold: null,
+  chatEnabled: false,
   loaded: false,
 };
 
@@ -38,6 +46,7 @@ export const useSettingsStore = create<SettingsState & SettingsActions>()((set) 
       currency: payload.currency ?? state.currency,
       defaultLowStockThreshold: payload.defaultLowStockThreshold ?? state.defaultLowStockThreshold,
       movementWarningThreshold: payload.movementWarningThreshold ?? state.movementWarningThreshold,
+      chatEnabled: payload.chatEnabled ?? state.chatEnabled,
       loaded: true,
     })),
 
@@ -46,3 +55,4 @@ export const useSettingsStore = create<SettingsState & SettingsActions>()((set) 
 
 export const selectCurrency = (s: SettingsState) => s.currency;
 export const selectWarningThreshold = (s: SettingsState) => s.movementWarningThreshold;
+export const selectChatEnabled = (s: SettingsState) => s.chatEnabled;
