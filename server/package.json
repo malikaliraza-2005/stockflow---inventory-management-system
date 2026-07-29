@@ -18,7 +18,9 @@
     "format": "prettier --write .",
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
-    "test:e2e": "vitest run tests/e2e --passWithNoTests"
+    "test:e2e": "vitest run tests/e2e --passWithNoTests",
+    "eval": "vitest run tests/eval",
+    "eval:live": "tsx --env-file=.env tests/eval/run-live.ts"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",
