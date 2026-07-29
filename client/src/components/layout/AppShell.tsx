@@ -11,6 +11,7 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { logout } from '../../api/auth';
 import { usePermission } from '../../hooks/usePermission';
 import { selectSidebarCollapsed, useUiStore } from '../../stores/uiStore';
+import { selectChatEnabled, useSettingsStore } from '../../stores/settingsStore';
 import { selectUser, useAuthStore } from '../../stores/authStore';
 import type { Capability } from '../../lib/permissions.generated';
 import { Button } from '../ui/Button';
@@ -21,6 +22,8 @@ interface NavEntry {
   to: string;
   label: string;
   capability: Capability;
+  /** Extra runtime gate beyond the capability — feature flags from the session. */
+  flag?: 'chatEnabled';
 }
 
 /** SMP §3 navigation model — capability keys gate visibility (FD-3). */
@@ -30,6 +33,9 @@ const NAV_ENTRIES: NavEntry[] = [
   { to: '/scanner', label: 'Scanner', capability: 'movements.stockInOut' },
   { to: '/categories', label: 'Categories', capability: 'categories.view' },
   { to: '/transactions', label: 'Transactions', capability: 'transactions.view' },
+  // Hidden entirely while CHAT_ENABLED is false — a nav item that 404s is worse
+  // than no nav item, and the flag is what makes the server toggle instant.
+  { to: '/assistant', label: 'Assistant', capability: 'chat.use', flag: 'chatEnabled' },
   { to: '/reports', label: 'Reports', capability: 'reports.view' },
   { to: '/users', label: 'Users', capability: 'users.manage' },
   { to: '/settings', label: 'Settings', capability: 'settings.manage' },
@@ -40,6 +46,10 @@ export function AppShell() {
   const collapsed = useUiStore(selectSidebarCollapsed);
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
   const can = usePermission();
+  const chatEnabled = useSettingsStore(selectChatEnabled);
+  const visibleEntries = NAV_ENTRIES.filter(
+    (entry) => can(entry.capability) && (entry.flag !== 'chatEnabled' || chatEnabled),
+  );
   const initials =
     (user?.name ?? '')
       .split(' ')
@@ -68,7 +78,7 @@ export function AppShell() {
           </button>
         </div>
         <nav className="space-y-1 px-2 py-2">
-          {NAV_ENTRIES.filter((entry) => can(entry.capability)).map((entry) => (
+          {visibleEntries.map((entry) => (
             <NavLink
               key={entry.to}
               to={entry.to}
@@ -124,7 +134,7 @@ export function AppShell() {
         aria-label="Primary"
         className="fixed inset-x-0 bottom-0 z-30 flex overflow-x-auto border-t border-neutral-200 bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-1px_3px_rgba(0,0,0,0.06)] backdrop-blur md:hidden"
       >
-        {NAV_ENTRIES.filter((entry) => can(entry.capability)).map((entry) => (
+        {visibleEntries.map((entry) => (
           <NavLink
             key={entry.to}
             to={entry.to}
