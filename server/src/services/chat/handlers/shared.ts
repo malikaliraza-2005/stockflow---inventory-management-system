@@ -63,6 +63,106 @@ export function singularise(value: string): string | undefined {
   return value.slice(0, -1);
 }
 
+/** Never widen below this — a 3-character fragment matches most catalogues. */
+const MIN_VARIANT = 4;
+
+/**
+ * Progressively looser search terms, most specific first.
+ *
+ * Retrieval here is a LITERAL substring regex (ProductService.list), which is
+ * exact in a way people are not. A user asking for "Barca Jersey" against a
+ * catalogue holding "FC Barcelona Jersey" gets nothing — and neither would a
+ * perfect classifier emitting "Barca", because "Barca" is not a substring of
+ * "Barcelona". No amount of prompt tuning fixes that; it is a retrieval gap,
+ * not a language one.
+ *
+ * So the handler widens on its own, in order:
+ *   1. the phrase as given
+ *   2. its singular ("Jerseys" → "Jersey")
+ *   3. each word alone, LONGEST FIRST — the longest word is the most
+ *      distinctive one available, and "Barca Jersey" → "Jersey" at least
+ *      returns the jerseys
+ *   4. a stem of the longest word, which is what finally bridges an
+ *      abbreviation to its full form ("Barca" → "Barc" → "FC Barcelona Jersey")
+ *
+ * The caller stops at the first variant that returns anything, and the reply
+ * SAYS which term actually produced the rows. Widening silently would be the
+ * unacceptable version: the user would think they had searched for one thing
+ * while reading results for another.
+ */
+export function searchVariants(term: string): string[] {
+  const variants: string[] = [];
+  const seen = new Set<string>();
+
+  const add = (value: string | undefined): void => {
+    if (value === undefined) return;
+    const trimmed = value.trim();
+    if (trimmed.length < 2) return;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    variants.push(trimmed);
+  };
+
+  add(term);
+  add(singularise(term));
+
+  const words = term
+    .split(/\s+/)
+    .filter((word) => word.length >= 2)
+    .sort((a, b) => b.length - a.length);
+  for (const word of words) {
+    add(word);
+    add(singularise(word));
+  }
+
+  // Last resort. Bounded to two characters so it stays a stem rather than
+  // becoming a wildcard.
+  const longest = words[0];
+  if (longest !== undefined && longest.length > MIN_VARIANT) {
+    add(longest.slice(0, Math.max(MIN_VARIANT, longest.length - 2)));
+  }
+
+  return variants;
+}
+
+export interface ProductSearchResult {
+  listed: Awaited<ReturnType<ProductService['list']>>;
+  /** The variant that actually returned rows — may be looser than what was asked. */
+  matched: string;
+  /** True when we had to widen; the templates must disclose this. */
+  widened: boolean;
+}
+
+/**
+ * Run the relaxation ladder until something matches. Each rung is one indexed
+ * query, and the ladder is short (≤ 5 for a two-word phrase), so the worst case
+ * is bounded — but it stops at the FIRST hit, so the common case is one query.
+ */
+export async function searchProducts(
+  products: ProductService,
+  term: string,
+  query: Partial<Omit<ProductsQuery, 'archived' | 'search'>>,
+): Promise<ProductSearchResult> {
+  const variants = searchVariants(term);
+  let first: ProductSearchResult | undefined;
+
+  for (const variant of variants) {
+    const listed = await products.list(productsQuery({ ...query, search: variant }));
+    const result = {
+      listed,
+      matched: variant,
+      widened: variant.toLowerCase() !== term.toLowerCase(),
+    };
+    first ??= result;
+    if (listed.totalItems > 0) return result;
+  }
+  // Nothing matched at any width — report against the term the user actually used.
+  return (
+    first ?? { listed: await products.list(productsQuery(query)), matched: term, widened: false }
+  );
+}
+
 /**
  * A COMPLETE `ProductsQuery`. `ProductService.list` reads `sort`, `order`,
  * `page` and `limit` directly — their defaults live in `productsQuerySchema`,

@@ -13,7 +13,7 @@ import {
   normaliseSlot,
   productsQuery,
   resolveCategoryId,
-  singularise,
+  searchProducts,
   toProductSummaries,
   totalOnHand,
   type ChatHandlerDeps,
@@ -42,32 +42,29 @@ export async function handleProductLookup(
     spokenCategory === undefined ? undefined : await resolveCategoryId(spokenCategory);
   const searchTerm = term ?? (categoryId === undefined ? spokenCategory : undefined);
 
-  let listed = await deps.products.list(
-    productsQuery({ limit: MAX_ROWS, search: searchTerm, categoryId }),
-  );
-
-  // Zero rows on a plural noun is overwhelmingly a slot-extraction artifact
-  // ("laptops" vs a stored "Laptop"), so try the singular ONCE before reporting
-  // an empty catalogue — which is what the user would otherwise read it as.
-  let effectiveTerm = searchTerm;
-  if (listed.totalItems === 0 && searchTerm !== undefined) {
-    const singular = singularise(searchTerm);
-    if (singular !== undefined) {
-      const retry = await deps.products.list(
-        productsQuery({ limit: MAX_ROWS, search: singular, categoryId }),
-      );
-      if (retry.totalItems > 0) {
-        listed = retry;
-        effectiveTerm = singular;
-      }
-    }
-  }
+  // The relaxation ladder does the work here: an exact substring search is
+  // exact in a way people are not, so a phrase that finds nothing is retried
+  // singular, then word by word, then stemmed (see searchVariants).
+  const search =
+    searchTerm === undefined
+      ? undefined
+      : await searchProducts(deps.products, searchTerm, { limit: MAX_ROWS, categoryId });
+  const listed =
+    search?.listed ?? (await deps.products.list(productsQuery({ limit: MAX_ROWS, categoryId })));
 
   const products: ProductSummary[] = toProductSummaries(listed.data, listed.categoryNames);
   const totalCount = listed.totalItems;
   const scope: LookupScope =
-    effectiveTerm !== undefined
-      ? { kind: 'term', value: effectiveTerm }
+    search !== undefined
+      ? {
+          kind: 'term',
+          value: search.matched,
+          // Only disclosed when the widening actually FOUND something —
+          // otherwise the miss message should name what the user asked for.
+          ...(search.widened && totalCount > 0 && searchTerm !== undefined
+            ? { asked: searchTerm }
+            : {}),
+        }
       : categoryId !== undefined && spokenCategory !== undefined
         ? { kind: 'category', value: spokenCategory }
         : { kind: 'all' };
@@ -76,7 +73,10 @@ export async function handleProductLookup(
     return {
       result: {
         intent: 'product_lookup',
-        summary: productLookupEmpty(scope),
+        // Name what the USER asked for, not the widest variant we tried.
+        summary: productLookupEmpty(
+          searchTerm === undefined ? scope : { kind: 'term', value: searchTerm },
+        ),
         products: [],
         totalCount: 0,
         examples: [...EXAMPLE_QUESTIONS],

@@ -16,8 +16,7 @@ import { serializeTransactionRow } from '../../../serializers/transaction.js';
 import { resolvePeriod } from '../period.js';
 import {
   normaliseSlot,
-  productsQuery,
-  singularise,
+  searchProducts,
   toProductSummaries,
   type ChatHandlerDeps,
   type HandlerOutcome,
@@ -53,16 +52,10 @@ export async function handleMovementHistory(
   }
 
   // ── resolve ────────────────────────────────────────────────────────────
-  let matches = await deps.products.list(productsQuery({ limit: MAX_CANDIDATES, search: term }));
-  if (matches.totalItems === 0) {
-    const singular = singularise(term);
-    if (singular !== undefined) {
-      const retry = await deps.products.list(
-        productsQuery({ limit: MAX_CANDIDATES, search: singular }),
-      );
-      if (retry.totalItems > 0) matches = retry;
-    }
-  }
+  // Same relaxation ladder as product_lookup: "Barca Jersey" must still reach
+  // "FC Barcelona Jersey", or every history question about it dead-ends.
+  const search = await searchProducts(deps.products, term, { limit: MAX_CANDIDATES });
+  const matches = search.listed;
 
   if (matches.totalItems === 0) {
     return {

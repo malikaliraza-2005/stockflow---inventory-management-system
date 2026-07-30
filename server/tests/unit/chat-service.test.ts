@@ -391,6 +391,55 @@ describe('slot normalisation (the real-world failure mode)', () => {
     expect(result.summary).toContain('Laptop Stand');
   });
 
+  it('widens to a word when the whole phrase misses, and SAYS that it did', async () => {
+    // The real case: catalogue holds "FC Barcelona Jersey"; the user asks for
+    // "Barca Jersey". A perfect classifier does not help — "Barca" is not a
+    // substring of "Barcelona" either. Retrieval has to relax.
+    await makeProduct('FC Barcelona Jersey', 4);
+    await makeProduct('Real Madrid Jersey', 6);
+    const { service } = makeChat(['{"intent":"product_lookup","productQuery":"Barca Jersey"}']);
+
+    const result = await service.ask(ask('Do we have Barca Jersey'));
+
+    if (result.intent !== 'product_lookup') throw new Error('unreachable');
+    expect(result.totalCount).toBe(2);
+    expect(result.summary).toBe(
+      'Nothing matched "Barca Jersey" exactly, so I searched for "Jersey" instead. ' +
+        'Found 2 products matching "Jersey". Total on hand: 10 units.',
+    );
+  });
+
+  it('stems the longest word as a last resort — "Barca" reaches "Barcelona"', async () => {
+    await makeProduct('FC Barcelona Jersey', 4);
+    const { service } = makeChat(['{"intent":"product_lookup","productQuery":"Barca"}']);
+
+    const result = await service.ask(ask('any Barca stuff'));
+
+    if (result.intent !== 'product_lookup') throw new Error('unreachable');
+    expect(result.totalCount).toBe(1);
+    expect(result.summary).toContain('so I searched for "Barc" instead');
+  });
+
+  it('a genuine miss still names what the USER asked for, not the widest attempt', async () => {
+    await makeProduct('Zyn cool mint', 4);
+    const { service } = makeChat(['{"intent":"product_lookup","productQuery":"Barca Jersey"}']);
+
+    const result = await service.ask(ask('Do we have Barca Jersey'));
+
+    expect(result.summary).toContain('No products matched "Barca Jersey"');
+    expect(result.summary).not.toContain('Jersey" instead');
+  });
+
+  it('movement history resolves through the same ladder', async () => {
+    await makeProduct('FC Barcelona Jersey', 4);
+    const { service } = makeChat(['{"intent":"movement_history","productQuery":"Barca"}']);
+
+    const result = await service.ask(ask('history for Barca'));
+
+    if (result.intent !== 'movement_history') throw new Error(`got ${result.intent}`);
+    expect(result.product.name).toBe('FC Barcelona Jersey');
+  });
+
   it('resolves a category NAME to an id, and falls back to search when it is not one', async () => {
     await makeProduct('Dell XPS 15', 2);
     const { service } = makeChat([

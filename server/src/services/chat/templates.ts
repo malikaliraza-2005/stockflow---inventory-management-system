@@ -29,7 +29,17 @@ export function plural(count: number, singular: string, pluralForm = `${singular
  * filter quietly misdescribes what the server did.
  */
 export type LookupScope =
-  { kind: 'term'; value: string } | { kind: 'category'; value: string } | { kind: 'all' };
+  | {
+      kind: 'term';
+      value: string;
+      /** Set when the handler WIDENED the search to find anything — this is the
+       *  phrase the user actually typed. Disclosed in the summary, because
+       *  reading results for "Jersey" while believing you searched for
+       *  "Barca Jersey" is worse than being told nothing matched. */
+      asked?: string | undefined;
+    }
+  | { kind: 'category'; value: string }
+  | { kind: 'all' };
 
 function scopeClause(scope: LookupScope): string {
   switch (scope.kind) {
@@ -42,6 +52,12 @@ function scopeClause(scope: LookupScope): string {
   }
 }
 
+/** States that the search was relaxed, or '' when it was not. */
+function widenedPrefix(scope: LookupScope): string {
+  if (scope.kind !== 'term' || scope.asked === undefined) return '';
+  return `Nothing matched "${scope.asked}" exactly, so I searched for "${scope.value}" instead. `;
+}
+
 // ── product_lookup ────────────────────────────────────────────────────────
 
 export function productLookupFound(args: {
@@ -49,7 +65,7 @@ export function productLookupFound(args: {
   totalCount: number;
   totalOnHand: number;
 }): string {
-  return `Found ${plural(args.totalCount, 'product')}${scopeClause(
+  return `${widenedPrefix(args.scope)}Found ${plural(args.totalCount, 'product')}${scopeClause(
     args.scope,
   )}. Total on hand: ${plural(args.totalOnHand, 'unit')}.`;
 }
@@ -60,7 +76,7 @@ export function productLookupTruncated(args: {
   totalCount: number;
   shown: number;
 }): string {
-  return `Found ${plural(args.totalCount, 'product')}${scopeClause(
+  return `${widenedPrefix(args.scope)}Found ${plural(args.totalCount, 'product')}${scopeClause(
     args.scope,
   )} — showing the first ${String(args.shown)}. Add a brand or category to narrow it down.`;
 }
