@@ -162,46 +162,47 @@ export function ChatWidget() {
         </div>
       )}
 
-      {/* Until it is dragged it sits ABOVE the mobile bottom nav (< md) and clear
-          of the edge on desktop; once dragged, an inline top/left wins and the
-          corner classes are dropped so they cannot fight it. */}
-      <button
-        type="button"
-        aria-label={open ? 'Close inventory assistant' : 'Open inventory assistant'}
-        aria-expanded={open}
-        data-testid="chat-bubble"
-        style={bubbleStyle}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
-        // A drop fires `click` too — swallow that one so dropping the bubble
-        // does not also open the panel.
-        onClick={() => {
-          if (consumeClick()) return;
-          setOpen((value) => !value);
-        }}
-        className={`fixed z-50 flex h-14 w-14 touch-none items-center justify-center rounded-full bg-linear-to-b from-brand-500 to-brand-600 text-white shadow-lg shadow-brand-600/30 transition-shadow duration-150 select-none hover:from-brand-600 hover:to-brand-700 hover:shadow-xl ${
-          position === null ? 'bottom-20 right-4 md:bottom-6 md:right-6' : ''
-        } ${dragging ? 'cursor-grabbing shadow-xl' : 'cursor-grab'}`}
-      >
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={1.7}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-          className="h-6 w-6"
+      {/* The bubble is the OPEN control only. While the panel is up it is hidden
+          entirely: the header already carries a close ×, and two × affordances
+          for one panel is one too many. Until it is dragged the bubble sits above
+          the mobile bottom nav (< md) and clear of the edge on desktop; once
+          dragged, an inline top/left wins and the corner classes are dropped so
+          they cannot fight it. */}
+      {!open && (
+        <button
+          type="button"
+          aria-label="Open inventory assistant"
+          aria-haspopup="dialog"
+          data-testid="chat-bubble"
+          style={bubbleStyle}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          // A drop fires `click` too — swallow that one so dropping the bubble
+          // does not also open the panel.
+          onClick={() => {
+            if (consumeClick()) return;
+            setOpen(true);
+          }}
+          className={`fixed z-50 flex h-14 w-14 touch-none items-center justify-center rounded-full bg-linear-to-b from-brand-500 to-brand-600 text-white shadow-lg shadow-brand-600/30 transition-shadow duration-150 select-none hover:from-brand-600 hover:to-brand-700 hover:shadow-xl ${
+            position === null ? 'bottom-20 right-4 md:bottom-6 md:right-6' : ''
+          } ${dragging ? 'cursor-grabbing shadow-xl' : 'cursor-grab'}`}
         >
-          {open ? (
-            <path d="M6 6l12 12M18 6L6 18" />
-          ) : (
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={1.7}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+            className="h-6 w-6"
+          >
             <path d="M20 12a7 7 0 0 1-7 7H8.5L4 21.5V12a7 7 0 0 1 7-7h2a7 7 0 0 1 7 7Zm-8.6 0a2.1 2.1 0 1 0 4.2 0 2.1 2.1 0 0 0-4.2 0Zm3.6 1.6 1.6 1.6" />
-          )}
-        </svg>
-      </button>
+          </svg>
+        </button>
+      )}
     </>
   );
 }

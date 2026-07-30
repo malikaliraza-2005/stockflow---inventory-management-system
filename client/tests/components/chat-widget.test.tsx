@@ -101,20 +101,33 @@ describe('the gate', () => {
 });
 
 describe('open / close', () => {
-  it('starts closed, opens on click, and reports its state to assistive tech', async () => {
+  it('starts closed, opens on click, and hands off to the panel', async () => {
     signIn();
     renderWidget();
 
     const bubble = screen.getByTestId('chat-bubble');
-    expect(bubble).toHaveAttribute('aria-expanded', 'false');
+    expect(bubble).toHaveAttribute('aria-haspopup', 'dialog');
     expect(screen.queryByTestId('chat-panel')).not.toBeInTheDocument();
 
     await userEvent.click(bubble);
 
-    expect(bubble).toHaveAttribute('aria-expanded', 'true');
+    // The bubble is the OPEN control only — it disappears behind the panel so
+    // there is exactly one close affordance on screen, not two.
+    expect(screen.queryByTestId('chat-bubble')).not.toBeInTheDocument();
     const panel = screen.getByTestId('chat-panel');
     expect(within(panel).getByRole('heading', { name: 'Inventory assistant' })).toBeInTheDocument();
     expect(within(panel).getByLabelText(/ask a question/i)).toBeInTheDocument();
+    expect(within(panel).getByRole('button', { name: 'Close assistant' })).toBeInTheDocument();
+  });
+
+  it('the bubble comes back when the panel closes', async () => {
+    signIn();
+    renderWidget();
+
+    await userEvent.click(screen.getByTestId('chat-bubble'));
+    await userEvent.click(screen.getByRole('button', { name: 'Close assistant' }));
+
+    expect(screen.getByTestId('chat-bubble')).toBeInTheDocument();
   });
 
   it('closes on Escape and on the close button', async () => {
