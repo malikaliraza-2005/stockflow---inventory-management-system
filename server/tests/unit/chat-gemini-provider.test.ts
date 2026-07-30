@@ -68,6 +68,34 @@ describe('request shaping', () => {
     expect(body.generationConfig.responseSchema).toBeDefined();
     expect(body.system_instruction.parts[0]?.text).toBe('classify this');
   });
+
+  it('DISABLES thinking on 2.5 models — thought tokens eat maxOutputTokens', async () => {
+    // Observed for real: 244 of a 256-token budget spent thinking, MAX_TOKENS,
+    // and the prose fragment "Here is the JSON requested:" instead of any JSON.
+    // Chain-of-thought on a four-way label is also simply the wrong tool.
+    const fetchImpl = vi.fn().mockResolvedValue(reply(okBody('{"intent":"low_stock"}')));
+    await makeProvider(fetchImpl as unknown as typeof fetch).complete(req);
+
+    const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as {
+      generationConfig: { thinkingConfig?: { thinkingBudget: number } };
+    };
+    expect(body.generationConfig.thinkingConfig).toEqual({ thinkingBudget: 0 });
+  });
+
+  it('does NOT send thinkingConfig to models that reject the field', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(reply(okBody('{"intent":"low_stock"}')));
+    const provider = makeGeminiProvider({
+      apiKey: 'k',
+      model: 'gemini-2.0-flash',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    await provider.complete(req);
+
+    const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as { generationConfig: Record<string, unknown> };
+    expect(body.generationConfig['thinkingConfig']).toBeUndefined();
+  });
 });
 
 describe('failure classification — what may be retried', () => {

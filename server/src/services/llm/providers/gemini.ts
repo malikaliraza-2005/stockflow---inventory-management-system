@@ -29,6 +29,22 @@ export interface GeminiConfig {
 }
 
 /**
+ * Models whose "thinking" must be switched OFF explicitly.
+ *
+ * Gemini 2.5 reasons before answering, and those thought tokens are billed
+ * against `maxOutputTokens`. With our 256-token budget a single classification
+ * spent 244 tokens thinking, hit MAX_TOKENS, and returned the prose fragment
+ * "Here is the JSON requested:" instead of any JSON — every call failing, in a
+ * way that looks like a parse bug rather than a config one.
+ *
+ * Thinking is also simply wrong for this task: the job is to emit one label
+ * from a closed set, and chain-of-thought on a four-way choice buys nothing
+ * while costing latency, quota, and reproducibility (which `temperature: 0`
+ * exists to guarantee).
+ */
+const THINKING_MODELS = /^gemini-2\.5|thinking/i;
+
+/**
  * JSON Schema → the Gemini `responseSchema` subset.
  *
  * Three concrete incompatibilities, all mechanical:
@@ -97,6 +113,8 @@ export function makeGeminiProvider(config: GeminiConfig): LlmProvider {
           temperature: req.temperature,
           maxOutputTokens: req.maxTokens,
           responseMimeType: 'application/json',
+          // Sent ONLY to models that support it — 2.0 and earlier reject the field.
+          ...(THINKING_MODELS.test(config.model) ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
           ...(req.json ? { responseSchema: toGeminiSchema(req.json.schema) } : {}),
         },
       };
@@ -123,12 +141,16 @@ export function makeGeminiProvider(config: GeminiConfig): LlmProvider {
       }
 
       if (!response.ok) {
-        // 4xx is terminal by policy: a bad key or an exhausted quota does not
-        // heal within one retry, and retrying 429 burns what is left.
-        throw new LlmProviderError(`Gemini responded ${String(response.status)}.`, {
-          retryable: response.status >= 500,
-          status: response.status,
-        });
+        // Carry the upstream REASON, not just the status. "429" alone cannot
+        // distinguish per-minute throttling (wait) from a spent daily quota
+        // (stop) from a model the key cannot reach at all (reconfigure) — and
+        // those need opposite responses. Bounded, and the body never contains
+        // the key.
+        const detail = (await response.text().catch(() => '')).slice(0, 300).replace(/\s+/g, ' ');
+        throw new LlmProviderError(
+          `Gemini responded ${String(response.status)}${detail === '' ? '' : `: ${detail}`}`,
+          { retryable: response.status >= 500, status: response.status },
+        );
       }
 
       let parsed: GeminiBody;

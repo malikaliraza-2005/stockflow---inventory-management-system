@@ -17,7 +17,15 @@
  */
 import { INTENT_SHAPES, PERIODS } from './intentSchema.js';
 
-export const PROMPT_VERSION = 'v1';
+/**
+ * v2 (live eval, gemini-2.5-flash): every slot miss on the answered cases was
+ * the same shape — "the Logitech mouse" → "Logitech mouse", "the Kingston SSD"
+ * → "Kingston SSD". Keeping the product TYPE alongside the brand looks more
+ * precise but retrieves LESS: the handler runs an unanchored substring match
+ * over name/sku/barcode, so "Logitech mouse" misses a product actually stored
+ * as "Logitech MX Master 3S". Rule 3 now says so explicitly.
+ */
+export const PROMPT_VERSION = 'v2';
 
 /** Human-readable purpose per intent — paired with the generated slot list. */
 const INTENT_DESCRIPTIONS: Record<string, string> = {
@@ -99,7 +107,9 @@ ${renderCatalogue()}
 RULES (in priority order)
 1. Output only JSON matching the schema. Nothing before it, nothing after it.
 2. "unsupported" is a CORRECT answer, not a failure. If the question does not clearly match one intent, return {"intent":"unsupported"}. Never guess between two intents.
-3. productQuery must be the SHORTEST DISTINCTIVE NOUN PHRASE: singular, filler removed, no words like "inventory", "stock", "products", "show me", "how many". "Show me the inventory of Dell laptops" gives "Dell", never "Dell laptops" and never "inventory of Dell laptops".
+3. productQuery must be the SHORTEST DISTINCTIVE NOUN PHRASE: singular, no articles ("the", "a"), no filler like "inventory", "stock", "products", "show me", "how many". "Show me the inventory of Dell laptops" gives "Dell", never "Dell laptops" and never "inventory of Dell laptops".
+3a. When a BRAND or MODEL is present, DROP the product type after it — the search matches substrings, so a longer phrase finds FEWER products, not more. "the Canon printer" gives "Canon". "Philips LED bulbs" gives "Philips". "the Corsair K70 keyboard" gives "Corsair K70".
+3b. Keep the product type ONLY when there is no brand or model to use: "office chairs" gives "office chair", "USB cables" gives "USB cable".
 4. Never invent a product name, category name or number that is not in the question. If a slot is not stated, omit it.
 5. Do not compute or guess dates. Choose a period bucket; the server resolves it.
 6. Any request to create, update, delete, archive, adjust or import anything is "unsupported". This assistant is read-only.

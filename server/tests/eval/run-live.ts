@@ -34,12 +34,34 @@ const service = new ChatService({
   config: { maxTokens: env.LLM_MAX_TOKENS, timeoutMs: env.LLM_TIMEOUT_MS },
 });
 
-const report = await runEval(
-  async (question) => (await service.classify(question)).intent,
-  EVAL_CASES,
+// ~10 requests/minute on the free tier. Overriding this downward on a paid key
+// is the whole reason it is an env var and not a constant.
+const delayMs = Number(process.env['EVAL_DELAY_MS'] ?? 7_000);
+/** EVAL_LIMIT trims the run — a smoke check that costs 5 requests instead of 42
+ *  while diagnosing configuration or quota. Never use a trimmed run as a score. */
+const limit = Number(process.env['EVAL_LIMIT'] ?? EVAL_CASES.length);
+const cases = EVAL_CASES.slice(0, limit);
+
+console.log(
+  `running ${String(cases.length)} of ${String(EVAL_CASES.length)} cases at ` +
+    `${String(delayMs)}ms spacing (~${String(Math.ceil((cases.length * delayMs) / 60_000))} min)…`,
 );
+if (cases.length < EVAL_CASES.length) {
+  console.log('NOTE: trimmed run — diagnostic only, not a score.');
+}
+
+const report = await runEval(async (question) => (await service.classify(question)).intent, cases, {
+  delayMs,
+});
 
 console.log(formatReport(report, PROMPT_VERSION, `${env.LLM_PROVIDER}/${env.LLM_MODEL}`));
+
+if (report.errored > 0) {
+  // An incomplete run cannot pass OR fail — it measured nothing. Saying "FAIL"
+  // here would send someone off to tune prompt wording to fix a quota problem.
+  console.log('\nINCOMPLETE — no score recorded. Re-run once the provider answers every case.');
+  process.exit(2);
+}
 
 const passed =
   report.intentScore >= EVAL_THRESHOLDS.intent && report.slotScore >= EVAL_THRESHOLDS.slot;

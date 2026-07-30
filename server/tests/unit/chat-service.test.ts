@@ -48,7 +48,15 @@ function captureLogger() {
   return { child, records };
 }
 
-function makeChat(responses: (string | Error)[], now = new Date('2026-07-29T12:00:00.000Z')) {
+/**
+ * The clock defaults to the REAL now, because the ledger rows these tests write
+ * are stamped with the real now too. A frozen clock made the period window
+ * drift out from under the fixtures the moment the wall date passed it, and the
+ * movement-history test started reporting an empty history for reasons that had
+ * nothing to do with the code. Date ARITHMETIC is pinned separately, against a
+ * fixed date, in chat-templates.test.ts.
+ */
+function makeChat(responses: (string | Error)[], now = new Date()) {
   const audit = new AuditService(logger);
   const movement = new MovementService({ audit });
   const script = makeFakeScript(responses);
@@ -418,7 +426,7 @@ describe('the structured log record', () => {
       fallback: null, // explicit, so "answered normally" is filterable
       resultCount: 1,
       provider: 'fake',
-      promptVersion: 'v1',
+      promptVersion: 'v2',
     });
     expect(record['tenantId']).toBe('aaaaaaaaaaaaaaaaaaaaaaa1');
     // Latency is SPLIT: "provider or database?" is always the first question.
