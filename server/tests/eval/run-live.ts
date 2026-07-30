@@ -40,7 +40,13 @@ const delayMs = Number(process.env['EVAL_DELAY_MS'] ?? 7_000);
 /** EVAL_LIMIT trims the run — a smoke check that costs 5 requests instead of 42
  *  while diagnosing configuration or quota. Never use a trimmed run as a score. */
 const limit = Number(process.env['EVAL_LIMIT'] ?? EVAL_CASES.length);
-const cases = EVAL_CASES.slice(0, limit);
+/** EVAL_FILTER matches case ids (e.g. "MH" for movement_history) — re-checking
+ *  the cases a prompt change targeted costs 10 requests instead of 42. */
+const filter = process.env['EVAL_FILTER'];
+const cases = EVAL_CASES.filter((c) => filter === undefined || new RegExp(filter).test(c.id)).slice(
+  0,
+  limit,
+);
 
 console.log(
   `running ${String(cases.length)} of ${String(EVAL_CASES.length)} cases at ` +
@@ -50,11 +56,29 @@ if (cases.length < EVAL_CASES.length) {
   console.log('NOTE: trimmed run — diagnostic only, not a score.');
 }
 
-const report = await runEval(async (question) => (await service.classify(question)).intent, cases, {
-  delayMs,
-});
+/** RAW completions, kept so failures show what the MODEL said rather than what
+ *  zod produced — schema defaults make those two indistinguishable, which is
+ *  exactly how a constrained-decoding defect hid through two prompt revisions. */
+const raws = new Map<string, string>();
+
+const report = await runEval(
+  async (question) => {
+    const classification = await service.classify(question);
+    raws.set(question, classification.raw);
+    return classification.intent;
+  },
+  cases,
+  { delayMs },
+);
 
 console.log(formatReport(report, PROMPT_VERSION, `${env.LLM_PROVIDER}/${env.LLM_MODEL}`));
+
+if (report.failures.length > 0) {
+  console.log('\nraw completions for failures (pre-parse, pre-defaults):');
+  for (const failure of report.failures) {
+    console.log(`  ${failure.id}: ${(raws.get(failure.question) ?? '(none)').trim()}`);
+  }
+}
 
 if (report.errored > 0) {
   // An incomplete run cannot pass OR fail — it measured nothing. Saying "FAIL"

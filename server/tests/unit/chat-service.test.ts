@@ -426,7 +426,7 @@ describe('the structured log record', () => {
       fallback: null, // explicit, so "answered normally" is filterable
       resultCount: 1,
       provider: 'fake',
-      promptVersion: 'v2',
+      promptVersion: 'v3',
     });
     expect(record['tenantId']).toBe('aaaaaaaaaaaaaaaaaaaaaaa1');
     // Latency is SPLIT: "provider or database?" is always the first question.

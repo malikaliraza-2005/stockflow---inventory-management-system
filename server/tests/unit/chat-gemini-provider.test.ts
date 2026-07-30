@@ -65,8 +65,39 @@ describe('request shaping', () => {
     };
     expect(body.generationConfig.temperature).toBe(0);
     expect(body.generationConfig.responseMimeType).toBe('application/json');
-    expect(body.generationConfig.responseSchema).toBeDefined();
     expect(body.system_instruction.parts[0]?.text).toBe('classify this');
+  });
+
+  it('does NOT send responseSchema by default — it suppresses optional slots', async () => {
+    // Measured on gemini-3.5-flash-lite, same prompt, same question:
+    //   with    -> {"intent":"movement_history","productQuery":"office chair"}
+    //   without -> {..., "period":"last_7_days"}
+    // Constrained decoding over the anyOf union drops OPTIONAL properties, and
+    // every slot with a zod default is optional. That turns a caught failure
+    // (malformed JSON) into a silent wrong answer (the default period).
+    const fetchImpl = vi.fn().mockResolvedValue(reply(okBody('{"intent":"low_stock"}')));
+    await makeProvider(fetchImpl as unknown as typeof fetch).complete(req);
+
+    const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as { generationConfig: Record<string, unknown> };
+    expect(body.generationConfig['responseSchema']).toBeUndefined();
+    // JSON mode still applies — the reparse ladder handles the rest.
+    expect(body.generationConfig['responseMimeType']).toBe('application/json');
+  });
+
+  it('sends responseSchema when explicitly opted in', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(reply(okBody('{"intent":"low_stock"}')));
+    const provider = makeGeminiProvider({
+      apiKey: 'k',
+      model: 'gemini-2.5-flash',
+      useResponseSchema: true,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    await provider.complete(req);
+
+    const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as { generationConfig: Record<string, unknown> };
+    expect(body.generationConfig['responseSchema']).toBeDefined();
   });
 
   it('DISABLES thinking on 2.5 models — thought tokens eat maxOutputTokens', async () => {

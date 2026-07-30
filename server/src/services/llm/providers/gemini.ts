@@ -23,6 +23,28 @@ const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 export interface GeminiConfig {
   apiKey: string;
   model: string;
+  /**
+   * Send `responseSchema` (constrained decoding). DEFAULT OFF, against the
+   * original design intent, because measurement contradicted it.
+   *
+   * Same question, same prompt, gemini-3.5-flash-lite:
+   *   with    → {"intent":"movement_history","productQuery":"office chair"}
+   *   without → {"intent":"movement_history","productQuery":"office chair",
+   *              "period":"last_7_days"}
+   *
+   * Constrained decoding over our `anyOf` union suppresses OPTIONAL properties
+   * outright, and every slot carrying a zod `.default()` is optional in the
+   * model's view. The schema was supposed to make malformed output impossible;
+   * in practice it made `period` unreachable, which is a silently WRONG answer
+   * ("last 30 days" for "everything ever recorded") rather than a caught one.
+   * Prompt wording cannot beat the decoder — v2 and v3 both tried.
+   *
+   * Malformed JSON stays cheap to handle: `responseMimeType: application/json`
+   * still applies, and the reparse-then-strict-zod ladder exists precisely for
+   * this. Trading a rare, CAUGHT failure for a common, SILENT one is the wrong
+   * trade. Left as a flag because a future model may handle unions properly.
+   */
+  useResponseSchema?: boolean;
   /** Test seam — inject a stub `fetch` instead of reaching the network. */
   fetchImpl?: typeof fetch;
   baseUrl?: string;
@@ -115,7 +137,9 @@ export function makeGeminiProvider(config: GeminiConfig): LlmProvider {
           responseMimeType: 'application/json',
           // Sent ONLY to models that support it — 2.0 and earlier reject the field.
           ...(THINKING_MODELS.test(config.model) ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
-          ...(req.json ? { responseSchema: toGeminiSchema(req.json.schema) } : {}),
+          ...(req.json && config.useResponseSchema === true
+            ? { responseSchema: toGeminiSchema(req.json.schema) }
+            : {}),
         },
       };
 

@@ -85,8 +85,17 @@ export interface ChatAsk {
   logger: Logger;
 }
 
-interface Classification {
+export interface Classification {
   intent: Intent;
+  /**
+   * The model's RAW completion, before parsing.
+   *
+   * Exposed because `intent` is post-zod, and zod applies defaults — so a model
+   * that omitted `period` entirely is indistinguishable from one that chose
+   * `last_30_days`. Reading the parsed value as model output hid a real
+   * constrained-decoding defect for two prompt revisions.
+   */
+  raw: string;
   fallback: ChatFallback | null;
   llmMs: number;
   inputTokens: number;
@@ -195,6 +204,7 @@ export class ChatService {
       if (raw === undefined) {
         return {
           intent: { intent: 'unsupported' },
+          raw: text,
           fallback: fallback('JSON_PARSE_FAILED', 'reparse_exhausted'),
           llmMs: Math.round(performance.now() - startedAt),
           inputTokens,
@@ -211,6 +221,7 @@ export class ChatService {
       // carries the user's question.
       return {
         intent: { intent: 'unsupported' },
+        raw: text,
         fallback: fallback(
           'SCHEMA_VALIDATION_FAILED',
           parsed.error.issues
@@ -235,6 +246,7 @@ export class ChatService {
 
     return {
       intent: parsed.data,
+      raw: text,
       fallback: null,
       llmMs: Math.round(performance.now() - startedAt),
       inputTokens,

@@ -18,6 +18,14 @@
 import { INTENT_SHAPES, PERIODS } from './intentSchema.js';
 
 /**
+ * v3 (live eval, gemini-3.5-flash-lite): intent hit 100%, but EVERY slot miss
+ * was `movement_history`, with two linked causes — `period` was never emitted
+ * at all (so the schema default silently answered "last 30 days" to "this
+ * month" and to "everything ever recorded" alike), and the unrecognised time
+ * phrase then leaked into productQuery as "Kingston SSD in the last 30 days".
+ * Rules 5/5a replace "choose a bucket" with an explicit phrase → bucket map,
+ * and say outright that the time phrase never belongs in productQuery.
+ *
  * v2 (live eval, gemini-2.5-flash): every slot miss on the answered cases was
  * the same shape — "the Logitech mouse" → "Logitech mouse", "the Kingston SSD"
  * → "Kingston SSD". Keeping the product TYPE alongside the brand looks more
@@ -25,7 +33,7 @@ import { INTENT_SHAPES, PERIODS } from './intentSchema.js';
  * over name/sku/barcode, so "Logitech mouse" misses a product actually stored
  * as "Logitech MX Master 3S". Rule 3 now says so explicitly.
  */
-export const PROMPT_VERSION = 'v2';
+export const PROMPT_VERSION = 'v3';
 
 /** Human-readable purpose per intent — paired with the generated slot list. */
 const INTENT_DESCRIPTIONS: Record<string, string> = {
@@ -111,7 +119,12 @@ RULES (in priority order)
 3a. When a BRAND or MODEL is present, DROP the product type after it — the search matches substrings, so a longer phrase finds FEWER products, not more. "the Canon printer" gives "Canon". "Philips LED bulbs" gives "Philips". "the Corsair K70 keyboard" gives "Corsair K70".
 3b. Keep the product type ONLY when there is no brand or model to use: "office chairs" gives "office chair", "USB cables" gives "USB cable".
 4. Never invent a product name, category name or number that is not in the question. If a slot is not stated, omit it.
-5. Do not compute or guess dates. Choose a period bucket; the server resolves it.
+5. Do not compute or guess dates. Map the time phrase to a period bucket — the server resolves it to real dates:
+   - "today", "this week", "the past week", "the last 7 days", "last week" -> last_7_days
+   - "this month", "so far this month" -> this_month
+   - "the past month", "the last 30 days", "recently", "lately" -> last_30_days
+   - "ever", "all time", "the full history", "everything recorded" -> all
+5a. The time phrase is NEVER part of productQuery. "the Canon printer last week" gives productQuery "Canon" AND period "last_7_days" — never productQuery "Canon printer last week".
 6. Any request to create, update, delete, archive, adjust or import anything is "unsupported". This assistant is read-only.
 
 EXAMPLES
