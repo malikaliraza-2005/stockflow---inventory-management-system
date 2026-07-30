@@ -11,9 +11,9 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { logout } from '../../api/auth';
 import { usePermission } from '../../hooks/usePermission';
 import { selectSidebarCollapsed, useUiStore } from '../../stores/uiStore';
-import { selectChatEnabled, useSettingsStore } from '../../stores/settingsStore';
 import { selectUser, useAuthStore } from '../../stores/authStore';
 import type { Capability } from '../../lib/permissions.generated';
+import { ChatWidget } from '../domain/ChatWidget';
 import { Button } from '../ui/Button';
 import { Logo } from '../ui/Logo';
 import { NAV_ICONS } from './navIcons';
@@ -22,8 +22,6 @@ interface NavEntry {
   to: string;
   label: string;
   capability: Capability;
-  /** Extra runtime gate beyond the capability — feature flags from the session. */
-  flag?: 'chatEnabled';
 }
 
 /** SMP §3 navigation model — capability keys gate visibility (FD-3). */
@@ -33,9 +31,6 @@ const NAV_ENTRIES: NavEntry[] = [
   { to: '/scanner', label: 'Scanner', capability: 'movements.stockInOut' },
   { to: '/categories', label: 'Categories', capability: 'categories.view' },
   { to: '/transactions', label: 'Transactions', capability: 'transactions.view' },
-  // Hidden entirely while CHAT_ENABLED is false — a nav item that 404s is worse
-  // than no nav item, and the flag is what makes the server toggle instant.
-  { to: '/assistant', label: 'Assistant', capability: 'chat.use', flag: 'chatEnabled' },
   { to: '/reports', label: 'Reports', capability: 'reports.view' },
   { to: '/users', label: 'Users', capability: 'users.manage' },
   { to: '/settings', label: 'Settings', capability: 'settings.manage' },
@@ -46,10 +41,7 @@ export function AppShell() {
   const collapsed = useUiStore(selectSidebarCollapsed);
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
   const can = usePermission();
-  const chatEnabled = useSettingsStore(selectChatEnabled);
-  const visibleEntries = NAV_ENTRIES.filter(
-    (entry) => can(entry.capability) && (entry.flag !== 'chatEnabled' || chatEnabled),
-  );
+  const visibleEntries = NAV_ENTRIES.filter((entry) => can(entry.capability));
   const initials =
     (user?.name ?? '')
       .split(' ')
@@ -150,6 +142,11 @@ export function AppShell() {
           </NavLink>
         ))}
       </nav>
+
+      {/* The assistant's entry point — a floating bubble, mounted once so it
+          follows the user across every page. Renders nothing without chat.use
+          and the session's chatEnabled flag. */}
+      <ChatWidget />
     </div>
   );
 }
