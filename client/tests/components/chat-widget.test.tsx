@@ -247,6 +247,51 @@ describe('dragging the bubble', () => {
     return bubble;
   }
 
+  it('lays down a smoke trail while dragging, and none before', () => {
+    signIn();
+    renderWidget();
+
+    expect(screen.queryByTestId('chat-bubble-smoke')).not.toBeInTheDocument();
+
+    const bubble = screen.getByTestId('chat-bubble');
+    fireEvent.pointerDown(bubble, {
+      pointerId: 1,
+      pointerType: 'mouse',
+      button: 0,
+      clientX: 0,
+      clientY: 0,
+    });
+    fireEvent.pointerMove(bubble, { pointerId: 1, clientX: 60, clientY: 40 });
+    fireEvent.pointerMove(bubble, { pointerId: 1, clientX: 120, clientY: 90 });
+    fireEvent.pointerMove(bubble, { pointerId: 1, clientX: 200, clientY: 150 });
+
+    const trail = screen.getByTestId('chat-bubble-smoke');
+    // One puff per EMIT_DISTANCE travelled — jsdom never fires animationend, so
+    // nothing self-removes and the count is exactly what was emitted.
+    expect(trail.childElementCount).toBe(3);
+    // A decorative layer must never swallow the drag it is decorating.
+    expect(trail).toHaveClass('pointer-events-none');
+    expect(trail).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('emits nothing for a sub-threshold wobble', () => {
+    signIn();
+    renderWidget();
+
+    const bubble = screen.getByTestId('chat-bubble');
+    fireEvent.pointerDown(bubble, {
+      pointerId: 1,
+      pointerType: 'mouse',
+      button: 0,
+      clientX: 10,
+      clientY: 10,
+    });
+    fireEvent.pointerMove(bubble, { pointerId: 1, clientX: 11, clientY: 11 });
+    fireEvent.pointerUp(bubble, { pointerId: 1, clientX: 11, clientY: 11 });
+
+    expect(screen.queryByTestId('chat-bubble-smoke')).not.toBeInTheDocument();
+  });
+
   it('moves the bubble and does NOT open the panel on drop', () => {
     signIn();
     renderWidget();

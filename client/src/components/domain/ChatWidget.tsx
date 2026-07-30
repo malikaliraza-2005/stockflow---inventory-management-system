@@ -23,6 +23,7 @@ import { useChat } from '../../hooks/useChat';
 import { usePermission } from '../../hooks/usePermission';
 import { BUBBLE_SIZE, useDraggableBubble } from '../../hooks/useDraggableBubble';
 import { selectChatEnabled, useSettingsStore } from '../../stores/settingsStore';
+import { BubbleSmokeTrail } from './BubbleSmokeTrail';
 import { ChatComposer } from './ChatComposer';
 import { ChatTranscript } from './ChatTranscript';
 
@@ -113,6 +114,10 @@ export function ChatWidget() {
 
   return (
     <>
+      {/* Decorative drag trail — emits only while a drag is in progress, and
+          not at all under prefers-reduced-motion. */}
+      <BubbleSmokeTrail active={dragging} position={position} />
+
       {open && (
         <div
           ref={panelRef}
