@@ -1,5 +1,8 @@
 /**
- * The xAI Grok adapter, through an injected `fetch`.
+ * The OpenAI-compatible adapter, through an injected `fetch` — it backs BOTH
+ * Groq (the inference provider, api.groq.com) and Grok (xAI, api.x.ai). Those
+ * are different companies one letter apart, so the endpoint assertions below
+ * are the guard against wiring a key to the wrong host.
  *
  * Same contract as the Gemini adapter — the whole point of the port is that
  * ChatService cannot tell them apart — so the assertions mirror it: JSON mode,
@@ -8,7 +11,10 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 
-import { makeGrokProvider } from '../../src/services/llm/providers/grok.js';
+import {
+  makeGrokProvider,
+  makeGroqProvider,
+} from '../../src/services/llm/providers/openaiCompatible.js';
 import { LlmProviderError } from '../../src/services/llm/types.js';
 
 function reply(body: unknown, status = 200): Response {
@@ -26,9 +32,9 @@ function okBody(content: string) {
 }
 
 function makeProvider(fetchImpl: typeof fetch) {
-  return makeGrokProvider({
-    apiKey: 'xai-test-key',
-    model: 'grok-4-fast-non-reasoning',
+  return makeGroqProvider({
+    apiKey: 'gsk-test-key',
+    model: 'llama-3.3-70b-versatile',
     fetchImpl,
   });
 }
@@ -51,9 +57,9 @@ describe('request shaping', () => {
     expect(res.outputTokens).toBe(14);
 
     const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
-    expect(url).toContain('/chat/completions');
-    expect(url).not.toContain('xai-test-key'); // never in a URL — access logs
-    expect((init.headers as Record<string, string>)['authorization']).toBe('Bearer xai-test-key');
+    expect(url).toBe('https://api.groq.com/openai/v1/chat/completions');
+    expect(url).not.toContain('gsk-test-key'); // never in a URL — access logs
+    expect((init.headers as Record<string, string>)['authorization']).toBe('Bearer gsk-test-key');
 
     const body = JSON.parse(init.body as string) as {
       model: string;
@@ -61,11 +67,33 @@ describe('request shaping', () => {
       response_format: { type: string };
       messages: { role: string; content: string }[];
     };
-    expect(body.model).toBe('grok-4-fast-non-reasoning');
+    expect(body.model).toBe('llama-3.3-70b-versatile');
     expect(body.temperature).toBe(0);
     expect(body.response_format).toEqual({ type: 'json_object' });
     expect(body.messages.map((m) => m.role)).toEqual(['system', 'user']);
     expect(body.messages[0]?.content).toBe('classify this');
+  });
+});
+
+describe('the two lookalike vendors are wired to DIFFERENT hosts', () => {
+  // Groq and Grok differ by one letter. Sending a gsk_ key to api.x.ai (or the
+  // reverse) fails as a 401, which the chain reads as "account spent" and
+  // silently fails over — a misconfiguration disguised as an outage.
+  it.each([
+    ['groq', makeGroqProvider, 'https://api.groq.com/openai/v1/chat/completions'],
+    ['grok', makeGrokProvider, 'https://api.x.ai/v1/chat/completions'],
+  ])('%s posts to %s', async (id, make, expectedUrl) => {
+    const fetchImpl = vi.fn().mockResolvedValue(reply(okBody('{"intent":"low_stock"}')));
+    const provider = make({
+      apiKey: 'k',
+      model: 'm',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    await provider.complete(req);
+
+    expect(provider.id).toBe(id);
+    expect((fetchImpl.mock.calls[0] as [string, RequestInit])[0]).toBe(expectedUrl);
   });
 });
 
@@ -119,6 +147,7 @@ describe('failure classification', () => {
       .catch((e: unknown) => e)) as Error;
 
     expect(error.message).toContain('credits exhausted');
+    expect(error.message).toContain('Groq');
   });
 
   it('an empty completion is a provider error, not text to reparse', async () => {

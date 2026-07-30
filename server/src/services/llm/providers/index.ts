@@ -11,11 +11,11 @@
 import { makeStubProvider } from './fake.js';
 import { makeFailoverProvider } from './failover.js';
 import { makeGeminiProvider } from './gemini.js';
-import { makeGrokProvider } from './grok.js';
+import { makeGrokProvider, makeGroqProvider } from './openaiCompatible.js';
 import type { Logger } from '../../../lib/logger.js';
 import type { LlmProvider } from '../types.js';
 
-export const LLM_PROVIDERS = ['fake', 'gemini', 'grok'] as const;
+export const LLM_PROVIDERS = ['fake', 'gemini', 'groq', 'grok'] as const;
 export type LlmProviderId = (typeof LLM_PROVIDERS)[number];
 
 /**
@@ -30,6 +30,12 @@ export const DEFAULT_MODELS: Record<LlmProviderId, string> = {
   // classification. NOT gemini-2.5-flash — it reasons before answering and
   // those thought tokens are billed against maxOutputTokens (see gemini.ts).
   gemini: 'gemini-3.5-flash-lite',
+  // Groq (console.groq.com) — an inference provider for open models. Big free
+  // tier, and 70B is worth it over 8B here: intent choice is easy but SLOT
+  // extraction is where this design actually fails, and that is where a larger
+  // model earns its latency.
+  groq: 'llama-3.3-70b-versatile',
+  // Grok (console.x.ai) — xAI's own models. Note the one-letter difference.
   grok: 'grok-4-fast-non-reasoning',
 };
 
@@ -48,6 +54,8 @@ function makeOne(id: LlmProviderId, apiKey: string, model: string): LlmProvider 
   switch (id) {
     case 'gemini':
       return makeGeminiProvider({ apiKey, model });
+    case 'groq':
+      return makeGroqProvider({ apiKey, model });
     case 'grok':
       return makeGrokProvider({ apiKey, model });
     case 'fake':

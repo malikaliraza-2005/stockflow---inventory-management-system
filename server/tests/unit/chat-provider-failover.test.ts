@@ -163,6 +163,11 @@ describe('createLlmProvider', () => {
       id: 'gemini',
       model: DEFAULT_MODELS.gemini,
     });
+    expect(createLlmProvider({ LLM_PROVIDER: 'groq' })).toMatchObject({
+      id: 'groq',
+      model: DEFAULT_MODELS.groq,
+    });
+    // Groq and Grok are different vendors one letter apart — both registered.
     expect(createLlmProvider({ LLM_PROVIDER: 'grok' })).toMatchObject({
       id: 'grok',
       model: DEFAULT_MODELS.grok,
