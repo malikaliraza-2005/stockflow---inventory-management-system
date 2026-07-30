@@ -32,7 +32,9 @@ export function ChatAnswer({ answer, onAskExample }: ChatAnswerProps) {
   return (
     <div className="space-y-3">
       {/* `whitespace-pre-line` — the unsupported template is a bulleted list. */}
-      <p className="whitespace-pre-line text-sm text-neutral-800">{answer.summary}</p>
+      <p className="whitespace-pre-line text-sm leading-relaxed text-neutral-800">
+        {answer.summary}
+      </p>
 
       {answer.intent === 'product_lookup' && <ProductTable rows={answer.products} />}
 
@@ -95,32 +97,37 @@ function ProductTable({ rows, caption }: { rows: ProductRow[]; caption?: string 
   ];
 
   return (
-    <section className="rounded-xl border border-neutral-200 bg-white p-3">
+    <section className="rounded-xl border border-neutral-200 bg-neutral-50/60 p-3">
       {caption !== undefined && (
         <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-500">
           {caption}
         </h3>
       )}
-      <DataTable
-        columns={columns}
-        rows={rows}
-        rowKey={(row) => row.id}
-        emptyState={<EmptyState message="No products to show." />}
-        mobileCard={(row) => (
-          <div className="space-y-1">
-            <div className="flex items-start justify-between gap-2">
-              <Link to={`/products/${row.id}`} className="font-medium text-brand-700">
-                {row.name}
-              </Link>
-              <StockStatusBadge status={row.stockStatus} isArchived={row.isArchived} />
+      {/* DataTable switches to its wide layout on VIEWPORT width, not container
+          width, so inside a fixed-width panel a long row must scroll HERE
+          rather than stretch the panel or clip silently. */}
+      <div className="-mx-1 overflow-x-auto px-1">
+        <DataTable
+          columns={columns}
+          rows={rows}
+          rowKey={(row) => row.id}
+          emptyState={<EmptyState message="No products to show." />}
+          mobileCard={(row) => (
+            <div className="space-y-1">
+              <div className="flex items-start justify-between gap-2">
+                <Link to={`/products/${row.id}`} className="font-medium text-brand-700">
+                  {row.name}
+                </Link>
+                <StockStatusBadge status={row.stockStatus} isArchived={row.isArchived} />
+              </div>
+              <p className="text-xs text-neutral-500">{row.sku}</p>
+              <p className="text-sm text-neutral-800">
+                {row.quantity} on hand · {formatMoney(row.sellingPrice, currency)}
+              </p>
             </div>
-            <p className="text-xs text-neutral-500">{row.sku}</p>
-            <p className="text-sm text-neutral-800">
-              {row.quantity} on hand · {formatMoney(row.sellingPrice, currency)}
-            </p>
-          </div>
-        )}
-      />
+          )}
+        />
+      </div>
     </section>
   );
 }
@@ -142,26 +149,28 @@ function MovementTable({ rows }: { rows: TransactionRow[] }) {
   ];
 
   return (
-    <section className="rounded-xl border border-neutral-200 bg-white p-3">
-      <DataTable
-        columns={columns}
-        rows={rows}
-        rowKey={(row) => row.id}
-        emptyState={<EmptyState message="No movements in this window." />}
-        mobileCard={(row) => (
-          <div className="space-y-1">
-            <div className="flex items-center justify-between gap-2">
-              <span className="font-medium text-neutral-900">{row.type}</span>
-              <span className="text-sm">
-                {row.quantityChange > 0 ? `+${row.quantityChange}` : row.quantityChange}
-              </span>
+    <section className="rounded-xl border border-neutral-200 bg-neutral-50/60 p-3">
+      <div className="-mx-1 overflow-x-auto px-1">
+        <DataTable
+          columns={columns}
+          rows={rows}
+          rowKey={(row) => row.id}
+          emptyState={<EmptyState message="No movements in this window." />}
+          mobileCard={(row) => (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium text-neutral-900">{row.type}</span>
+                <span className="text-sm">
+                  {row.quantityChange > 0 ? `+${row.quantityChange}` : row.quantityChange}
+                </span>
+              </div>
+              <p className="text-xs text-neutral-500">
+                {formatDateTime(row.createdAt)} · {row.userName} · {row.quantityAfter} after
+              </p>
             </div>
-            <p className="text-xs text-neutral-500">
-              {formatDateTime(row.createdAt)} · {row.userName} · {row.quantityAfter} after
-            </p>
-          </div>
-        )}
-      />
+          )}
+        />
+      </div>
     </section>
   );
 }

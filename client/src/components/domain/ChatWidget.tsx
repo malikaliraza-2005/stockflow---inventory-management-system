@@ -27,9 +27,17 @@ import { BubbleSmokeTrail } from './BubbleSmokeTrail';
 import { ChatComposer } from './ChatComposer';
 import { ChatTranscript } from './ChatTranscript';
 
-/** Panel box on ≥ sm. Mirrors the Tailwind classes used in the default corner. */
-const PANEL_WIDTH = 416; // w-[26rem]
-const PANEL_MAX_HEIGHT = 608; // 38rem
+/**
+ * Panel box on ≥ sm. These MUST mirror the Tailwind classes on the panel — the
+ * drag-anchoring maths positions the panel from these numbers, so a class that
+ * says one width while the constant says another puts the panel off its bubble.
+ *
+ * 34rem rather than 26rem because `DataTable` swaps to its full multi-column
+ * layout at VIEWPORT ≥ 768px, not container width: on any desktop screen a
+ * 6-column product table was being forced into a 416px panel.
+ */
+const PANEL_WIDTH = 544; // w-[34rem]
+const PANEL_MAX_HEIGHT = 704; // 44rem
 const PANEL_GAP = 12;
 const EDGE_MARGIN = 16;
 const SM_BREAKPOINT = 640;
@@ -94,7 +102,7 @@ export function ChatWidget() {
   const panelStyle = useMemo<CSSProperties | undefined>(() => {
     if (position === null || viewport.width < SM_BREAKPOINT) return undefined;
 
-    const height = Math.min(viewport.height * 0.7, PANEL_MAX_HEIGHT);
+    const height = Math.min(viewport.height * 0.78, PANEL_MAX_HEIGHT);
     const above = position.y - PANEL_GAP - height;
     const top =
       above >= EDGE_MARGIN
@@ -127,16 +135,32 @@ export function ChatWidget() {
           style={panelStyle}
           className={
             panelStyle === undefined
-              ? 'fixed inset-x-3 bottom-24 top-16 z-40 flex flex-col overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-2xl sm:inset-x-auto sm:right-6 sm:top-auto sm:h-[min(70vh,38rem)] sm:w-[26rem] md:bottom-24'
-              : 'fixed z-40 flex flex-col overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-2xl'
+              ? 'animate-dialog-in fixed inset-x-3 bottom-24 top-16 z-40 flex flex-col overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-pop sm:inset-x-auto sm:right-6 sm:top-auto sm:h-[min(78vh,44rem)] sm:w-[34rem] md:bottom-24'
+              : 'animate-dialog-in fixed z-40 flex flex-col overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-pop'
           }
         >
-          <header className="flex items-center justify-between gap-2 bg-linear-to-b from-brand-600 to-brand-700 px-4 py-3 text-white">
-            <div className="min-w-0">
-              <h2 className="truncate text-sm font-semibold">Inventory assistant</h2>
-              <p className="truncate text-xs text-brand-100">
-                Answers from your live stock — read-only
-              </p>
+          <header className="flex items-center justify-between gap-3 bg-linear-to-br from-brand-600 via-brand-600 to-brand-700 px-4 py-3.5 text-white">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/15 ring-1 ring-white/25">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={1.7}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                  className="h-5 w-5"
+                >
+                  <path d="M20 12a7 7 0 0 1-7 7H8.5L4 21.5V12a7 7 0 0 1 7-7h2a7 7 0 0 1 7 7Zm-8.6 0a2.1 2.1 0 1 0 4.2 0 2.1 2.1 0 0 0-4.2 0Zm3.6 1.6 1.6 1.6" />
+                </svg>
+              </span>
+              <div className="min-w-0">
+                <h2 className="truncate text-sm font-semibold">Inventory assistant</h2>
+                <p className="truncate text-xs text-brand-100">
+                  Answers from your live stock — read-only
+                </p>
+              </div>
             </div>
             <div className="flex shrink-0 items-center gap-1">
               {messages.length > 0 && (
@@ -169,7 +193,7 @@ export function ChatWidget() {
             </div>
           </header>
 
-          <div className="min-h-0 flex-1 overflow-y-auto bg-neutral-50 p-3">
+          <div className="min-h-0 flex-1 overflow-y-auto bg-neutral-50 px-4 py-4">
             <ChatTranscript
               messages={messages}
               pending={pending}
@@ -179,7 +203,7 @@ export function ChatWidget() {
             />
           </div>
 
-          <div className="border-t border-neutral-200 bg-white p-3">
+          <div className="border-t border-neutral-200 bg-white px-4 py-3">
             <ChatComposer
               inputId="assistant-widget-question"
               pending={pending}

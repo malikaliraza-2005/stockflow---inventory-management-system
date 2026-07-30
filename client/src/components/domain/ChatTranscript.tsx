@@ -78,12 +78,12 @@ export function ChatTranscript({
   }
 
   return (
-    <div className="space-y-4" aria-live="polite" aria-busy={pending}>
+    <div className="space-y-5" aria-live="polite" aria-busy={pending}>
       {messages.map((message) => {
         if (message.kind === 'question') {
           return (
             <div key={message.id} className="flex justify-end">
-              <p className="max-w-[80%] rounded-2xl rounded-br-sm bg-brand-600 px-4 py-2 text-sm text-white">
+              <p className="max-w-[85%] rounded-2xl rounded-br-md bg-linear-to-b from-brand-500 to-brand-600 px-4 py-2.5 text-sm leading-relaxed text-white shadow-sm">
                 {message.text}
               </p>
             </div>
@@ -95,7 +95,7 @@ export function ChatTranscript({
             <div
               key={message.id}
               data-testid="chat-error"
-              className="rounded-xl border border-danger-200 bg-danger-50 p-3 text-sm text-danger-800"
+              className="rounded-2xl rounded-bl-md border border-danger-200 bg-danger-50 p-3.5 text-sm text-danger-800"
             >
               <p>{message.text}</p>
               {message.correlationId !== undefined && (
@@ -107,7 +107,9 @@ export function ChatTranscript({
 
         return (
           <div key={message.id} data-testid="chat-answer" className="space-y-2">
-            <ChatAnswer answer={message.answer} onAskExample={onAskExample} />
+            <div className="rounded-2xl rounded-bl-md border border-neutral-200 bg-white p-3.5 shadow-card">
+              <ChatAnswer answer={message.answer} onAskExample={onAskExample} />
+            </div>
             <FeedbackButtons
               rating={message.rating}
               onRate={(rating) => onRate(message.id, rating)}

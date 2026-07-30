@@ -363,8 +363,12 @@ describe('dragging the bubble', () => {
     fireEvent.click(bubble); // real click
 
     const panel = screen.getByTestId('chat-panel');
-    // 26rem panel, right edge aligned to the bubble's right edge: 600 + 56 - 416.
-    expect(panel.style.left).toBe('240px');
+    // The panel's RIGHT edge lines up with the bubble's right edge. Derived from
+    // the rendered width rather than hard-coded, so resizing the panel does not
+    // silently break this test's meaning.
+    const panelWidth = Number.parseInt(panel.style.width, 10);
+    expect(panelWidth).toBeGreaterThan(0);
+    expect(Number.parseInt(panel.style.left, 10)).toBe(600 + 56 - panelWidth);
     expect(panel).not.toHaveClass('bottom-24');
   });
 });
