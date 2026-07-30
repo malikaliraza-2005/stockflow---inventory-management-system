@@ -14,9 +14,10 @@
  *
  * The panel is deliberately NOT a modal: it does not trap focus or block the
  * page behind it, because reading a product row while asking about it is the
- * whole point. Escape closes it.
+ * whole point. It closes on the header ×, on Escape, and on a click anywhere
+ * outside it — three exits, none of which requires aiming at a small target.
  */
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 
 import { useChat } from '../../hooks/useChat';
 import { usePermission } from '../../hooks/usePermission';
@@ -36,6 +37,7 @@ export function ChatWidget() {
   const can = usePermission();
   const chatEnabled = useSettingsStore(selectChatEnabled);
   const [open, setOpen] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
   const { messages, pending, progress, ask, rate, reset } = useChat();
   const { position, dragging, onPointerDown, onPointerMove, onPointerUp, consumeClick } =
     useDraggableBubble();
@@ -57,6 +59,26 @@ export function ChatWidget() {
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
+  }, [open]);
+
+  /**
+   * Click-away close. Listens on `pointerdown` rather than `click` so the panel
+   * is gone before the click lands — otherwise the underlying control would be
+   * activated by the same gesture that dismissed the panel.
+   *
+   * Registered from an effect, which is what stops the very click that OPENED
+   * the panel from immediately closing it again: the listener is only attached
+   * after that render has committed.
+   */
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && panelRef.current?.contains(target) === true) return;
+      setOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
   }, [open]);
 
   /**
@@ -93,6 +115,7 @@ export function ChatWidget() {
     <>
       {open && (
         <div
+          ref={panelRef}
           role="dialog"
           aria-label="Inventory assistant"
           data-testid="chat-panel"

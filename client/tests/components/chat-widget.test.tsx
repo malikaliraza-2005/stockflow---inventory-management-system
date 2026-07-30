@@ -120,6 +120,47 @@ describe('open / close', () => {
     expect(within(panel).getByRole('button', { name: 'Close assistant' })).toBeInTheDocument();
   });
 
+  it('closes on a click anywhere OUTSIDE the panel', async () => {
+    signIn();
+    const { container } = render(
+      <MemoryRouter>
+        <div data-testid="page-behind">the page</div>
+        <ChatWidget />
+      </MemoryRouter>,
+    );
+
+    await userEvent.click(screen.getByTestId('chat-bubble'));
+    expect(screen.getByTestId('chat-panel')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId('page-behind'));
+    expect(screen.queryByTestId('chat-panel')).not.toBeInTheDocument();
+    expect(container).toBeTruthy();
+  });
+
+  it('does NOT close on a click inside the panel', async () => {
+    signIn();
+    renderWidget();
+
+    await userEvent.click(screen.getByTestId('chat-bubble'));
+    // Typing, clicking the transcript, hitting a starter question — all inside.
+    await userEvent.click(screen.getByLabelText(/ask a question/i));
+    await userEvent.click(screen.getByRole('heading', { name: 'Inventory assistant' }));
+
+    expect(screen.getByTestId('chat-panel')).toBeInTheDocument();
+  });
+
+  it('the click that OPENS it does not immediately close it', async () => {
+    // The click-away listener is registered from an effect, so it is only live
+    // after the opening render commits — otherwise the opening click would be
+    // seen as an outside click and the panel would never appear.
+    signIn();
+    renderWidget();
+
+    await userEvent.click(screen.getByTestId('chat-bubble'));
+
+    expect(screen.getByTestId('chat-panel')).toBeInTheDocument();
+  });
+
   it('the bubble comes back when the panel closes', async () => {
     signIn();
     renderWidget();
