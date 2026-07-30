@@ -58,7 +58,7 @@ import { AuditService } from './services/AuditService.js';
 import { AuthService } from './services/AuthService.js';
 import { CategoryService } from './services/CategoryService.js';
 import { ChatService } from './services/ChatService.js';
-import { createLlmProvider } from './services/llm/providers/index.js';
+import { createLlmProvider, type LlmProviderId } from './services/llm/providers/index.js';
 import { DashboardService } from './services/DashboardService.js';
 import { MovementService } from './services/MovementService.js';
 import { ProductService } from './services/ProductService.js';
@@ -91,9 +91,14 @@ export interface AppEnv {
   CLOUDINARY_DELIVERY_HOST: string;
   /** AI Inventory Assistant kill switch — off ⇒ /chat is never mounted. */
   CHAT_ENABLED: boolean;
-  LLM_PROVIDER: 'fake' | 'gemini';
-  LLM_MODEL: string;
+  LLM_PROVIDER: LlmProviderId;
+  /** Absent ⇒ the provider's default model (services/llm/providers/index.ts). */
+  LLM_MODEL?: string | undefined;
   LLM_API_KEY?: string | undefined;
+  /** Optional second account, used only when the primary reports exhaustion. */
+  LLM_FALLBACK_PROVIDER?: LlmProviderId | undefined;
+  LLM_FALLBACK_API_KEY?: string | undefined;
+  LLM_FALLBACK_MODEL?: string | undefined;
   LLM_MAX_TOKENS: number;
   LLM_TIMEOUT_MS: number;
   RATE_LIMIT_CHAT_MAX: number;
@@ -352,7 +357,7 @@ export function createApp(deps: AppDeps): Express {
     const chatService = new ChatService({
       // Mirrors the verifyGoogleToken seam: tests inject a scripted provider,
       // production builds the real one from config.
-      llm: deps.llmProvider ?? createLlmProvider(env),
+      llm: deps.llmProvider ?? createLlmProvider(env, logger),
       products: productService,
       transactions: transactionService,
       config: { maxTokens: env.LLM_MAX_TOKENS, timeoutMs: env.LLM_TIMEOUT_MS },
@@ -368,7 +373,11 @@ export function createApp(deps: AppDeps): Express {
     );
   }
   logger.info(
-    { chatEnabled: env.CHAT_ENABLED, llmProvider: env.LLM_PROVIDER },
+    {
+      chatEnabled: env.CHAT_ENABLED,
+      llmProvider: env.LLM_PROVIDER,
+      llmFallback: env.LLM_FALLBACK_PROVIDER ?? null,
+    },
     env.CHAT_ENABLED ? 'chat: AI assistant ENABLED' : 'chat: AI assistant DISABLED (CHAT_ENABLED)',
   );
 

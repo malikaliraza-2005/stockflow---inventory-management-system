@@ -35,8 +35,9 @@ services:
         value: "false"
       - key: LLM_PROVIDER
         value: gemini
-      - key: LLM_MODEL
-        value: gemini-2.5-flash
+      # Omit LLM_MODEL to take the provider's verified default. NOT
+      # gemini-2.5-flash: it reasons before answering and those thought tokens
+      # are billed against maxOutputTokens (see services/llm/providers/gemini.ts).
       # Secrets — set in the Render dashboard, never here (SEC-10):
       - key: MONGODB_URI
         sync: false
@@ -58,3 +59,7 @@ services:
         sync: false
       - key: LLM_API_KEY
         sync: false # only needed once CHAT_ENABLED flips to true
+      # Optional: a second account so a spent quota switches provider instead of
+      # taking the assistant down. Set LLM_FALLBACK_PROVIDER in the dashboard too.
+      - key: LLM_FALLBACK_API_KEY
+        sync: false

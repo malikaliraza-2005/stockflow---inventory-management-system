@@ -187,4 +187,47 @@ describe('AI Inventory Assistant configuration', () => {
   it('rejects an unknown provider id by name', () => {
     expect(() => loadEnv({ ...validEnv(), LLM_PROVIDER: 'ollama' })).toThrowError(/LLM_PROVIDER/);
   });
+
+  it('leaves LLM_MODEL absent so each provider can supply its own default', () => {
+    // Switching provider must not also require knowing that vendor's model
+    // naming — providers/index.ts holds the per-provider default.
+    expect(loadEnv(validEnv()).LLM_MODEL).toBeUndefined();
+  });
+
+  it('accepts a second provider for failover', () => {
+    const env = loadEnv({
+      ...validEnv(),
+      CHAT_ENABLED: 'true',
+      LLM_PROVIDER: 'gemini',
+      LLM_API_KEY: 'AIza-primary',
+      LLM_FALLBACK_PROVIDER: 'grok',
+      LLM_FALLBACK_API_KEY: 'xai-backup',
+    });
+    expect(env.LLM_FALLBACK_PROVIDER).toBe('grok');
+  });
+
+  it('demands the fallback bring its OWN key — a shared account is not a fallback', () => {
+    expect(() =>
+      loadEnv({
+        ...validEnv(),
+        CHAT_ENABLED: 'true',
+        LLM_PROVIDER: 'gemini',
+        LLM_API_KEY: 'AIza-primary',
+        LLM_FALLBACK_PROVIDER: 'grok',
+      }),
+    ).toThrowError(/LLM_FALLBACK_API_KEY/);
+  });
+
+  it('rejects failing over to the same provider', () => {
+    expect(() =>
+      loadEnv({
+        ...validEnv(),
+        CHAT_ENABLED: 'true',
+        LLM_PROVIDER: 'gemini',
+        LLM_API_KEY: 'AIza-primary',
+        LLM_FALLBACK_PROVIDER: 'gemini',
+        LLM_FALLBACK_API_KEY: 'AIza-other',
+      }),
+    ).toThrowError(/LLM_FALLBACK_PROVIDER/);
+  });
 });

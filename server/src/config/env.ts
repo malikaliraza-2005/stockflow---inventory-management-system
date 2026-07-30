@@ -10,6 +10,8 @@
  */
 import { z } from 'zod';
 
+import { LLM_PROVIDERS } from '../services/llm/providers/index.js';
+
 /** `15m`, `7d`, `900s`, `250ms` … — the TTL grammar of SRS §18.4 */
 const DURATION_PATTERN = /^\d+(ms|s|m|h|d)$/;
 const DURATION_MESSAGE = 'must be a duration like 15m, 7d, 900s, 250ms';
@@ -74,10 +76,20 @@ const envSchema = z
     CHAT_ENABLED: z
       .preprocess((v) => (v === 'true' ? true : v === 'false' ? false : v), z.boolean())
       .default(false),
-    LLM_PROVIDER: z.enum(['fake', 'gemini']).default('fake'),
-    LLM_MODEL: z.string().min(1).default('gemini-2.5-flash'),
+    LLM_PROVIDER: z.enum(LLM_PROVIDERS).default('fake'),
+    /** Absent ⇒ the selected provider's default model (providers/index.ts). */
+    LLM_MODEL: z.string().min(1).optional(),
     /** Secret (SEC-10). Never VITE_-prefixed — this value never reaches a browser. */
     LLM_API_KEY: z.string().min(1).optional(),
+    /**
+     * Second provider, used ONLY when the primary reports exhaustion (quota
+     * spent, credit gone, key rejected) — not on timeouts or 5xx, which are
+     * transient and would burn the backup for nothing. Needs its own key: the
+     * whole point is a different account.
+     */
+    LLM_FALLBACK_PROVIDER: z.enum(LLM_PROVIDERS).optional(),
+    LLM_FALLBACK_API_KEY: z.string().min(1).optional(),
+    LLM_FALLBACK_MODEL: z.string().min(1).optional(),
     LLM_MAX_TOKENS: z.coerce.number().int().min(16).max(4096).default(256),
     LLM_TIMEOUT_MS: z.coerce.number().int().min(500).max(30_000).default(8_000),
     /** Tighter than the global 300/15min, and keyed on the USER (see routes/chat.ts). */
@@ -109,7 +121,27 @@ const envSchema = z
   .refine((e) => !e.CHAT_ENABLED || e.LLM_PROVIDER === 'fake' || Boolean(e.LLM_API_KEY), {
     message: 'is required when CHAT_ENABLED=true with a real LLM_PROVIDER',
     path: ['LLM_API_KEY'],
-  });
+  })
+  // A fallback sharing the primary's account is not a fallback — the failure it
+  // exists to survive is that account being spent.
+  .refine(
+    (e) =>
+      e.LLM_FALLBACK_PROVIDER === undefined ||
+      e.LLM_FALLBACK_PROVIDER === 'fake' ||
+      Boolean(e.LLM_FALLBACK_API_KEY),
+    {
+      message:
+        'is required when LLM_FALLBACK_PROVIDER names a real provider (it needs its OWN key)',
+      path: ['LLM_FALLBACK_API_KEY'],
+    },
+  )
+  .refine(
+    (e) => e.LLM_FALLBACK_PROVIDER === undefined || e.LLM_FALLBACK_PROVIDER !== e.LLM_PROVIDER,
+    {
+      message: 'must differ from LLM_PROVIDER — failing over to the same provider changes nothing',
+      path: ['LLM_FALLBACK_PROVIDER'],
+    },
+  );
 
 export type Env = z.infer<typeof envSchema>;
 

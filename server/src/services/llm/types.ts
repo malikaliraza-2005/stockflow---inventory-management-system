@@ -57,14 +57,30 @@ export class LlmProviderError extends Error {
   readonly retryable: boolean;
   /** Upstream HTTP status when there was one. */
   readonly status: number | undefined;
+  /**
+   * The account cannot serve this request AT ALL right now — quota spent,
+   * credit exhausted, key rejected. Distinct from `retryable`: waiting will not
+   * help, but a DIFFERENT PROVIDER would. This is what the failover chain
+   * switches on, and why it must not switch on a timeout (which is transient
+   * and would burn the backup's quota for nothing).
+   */
+  readonly exhausted: boolean;
 
   constructor(
     message: string,
-    opts: { retryable: boolean; status?: number | undefined } = { retryable: false },
+    opts: { retryable: boolean; status?: number | undefined; exhausted?: boolean } = {
+      retryable: false,
+    },
   ) {
     super(message);
     this.name = 'LlmProviderError';
     this.retryable = opts.retryable;
     this.status = opts.status;
+    this.exhausted = opts.exhausted ?? false;
   }
+}
+
+/** 429 quota, 402 out of credit, 401/403 bad or revoked key. */
+export function isExhaustedStatus(status: number): boolean {
+  return status === 401 || status === 402 || status === 403 || status === 429;
 }

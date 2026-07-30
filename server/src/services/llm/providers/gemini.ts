@@ -16,7 +16,13 @@
  *    and on a free tier quota exhaustion is the EXPECTED failure, not an edge
  *    case. Either way the caller sees `LlmProviderError`, never a raw throw.
  */
-import { LlmProviderError, type LlmProvider, type LlmRequest, type LlmResponse } from '../types.js';
+import {
+  isExhaustedStatus,
+  LlmProviderError,
+  type LlmProvider,
+  type LlmRequest,
+  type LlmResponse,
+} from '../types.js';
 
 const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
@@ -173,7 +179,11 @@ export function makeGeminiProvider(config: GeminiConfig): LlmProvider {
         const detail = (await response.text().catch(() => '')).slice(0, 300).replace(/\s+/g, ' ');
         throw new LlmProviderError(
           `Gemini responded ${String(response.status)}${detail === '' ? '' : `: ${detail}`}`,
-          { retryable: response.status >= 500, status: response.status },
+          {
+            retryable: response.status >= 500,
+            status: response.status,
+            exhausted: isExhaustedStatus(response.status),
+          },
         );
       }
 
