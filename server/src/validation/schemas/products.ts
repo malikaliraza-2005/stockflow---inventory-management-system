@@ -139,6 +139,11 @@ export const productsQuerySchema = z.object({
     .optional(),
   categoryId: objectId.optional(),
   stockStatus: z.enum(['in', 'low', 'out']).optional(),
+  /** Inclusive quantity bounds (FR-SRCH). Independent of `stockStatus`, which
+   *  answers "is it low RELATIVE to its own threshold"; these answer "how many
+   *  units", which is a different question people ask constantly. */
+  minQuantity: z.coerce.number().int().min(0).max(10_000_000).optional(),
+  maxQuantity: z.coerce.number().int().min(0).max(10_000_000).optional(),
   archived: z
     .preprocess((value) => {
       if (value === 'true') return true;

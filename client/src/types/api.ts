@@ -2121,6 +2121,10 @@ export interface operations {
         search?: string;
         categoryId?: string;
         stockStatus?: 'in' | 'low' | 'out';
+        /** @description Inclusive lower bound on units in stock. Independent of stockStatus, which compares each product to its OWN reorder level; this compares to a number the caller chose. Ignored when stockStatus=out, which already pins quantity to exactly 0. */
+        minQuantity?: number;
+        /** @description Inclusive upper bound on units in stock. */
+        maxQuantity?: number;
         /** @description Admin-only — filter by archival state. Staff supplying it → 403. */
         archived?: boolean;
         sort?: 'name' | 'sku' | 'quantity' | 'createdAt' | 'costPrice';

@@ -31,6 +31,10 @@ const productQuery = z.string().trim().min(2).max(60);
 
 const categoryName = z.string().trim().min(2).max(60);
 
+/** Bounded like the catalogue's own quantity envelope — an unbounded number
+ *  here would reach a Mongo range query straight from model output. */
+const quantityBound = z.number().int().min(0).max(10_000_000);
+
 /**
  * The model does NOT compute dates — it picks a bucket and the SERVER resolves
  * it against the server clock. Models have no reliable "today" and do date
@@ -48,6 +52,11 @@ export const intentSchema = z.discriminatedUnion('intent', [
     intent: z.literal('product_lookup'),
     productQuery: productQuery.optional(),
     categoryName: categoryName.optional(),
+    /** Inclusive quantity bounds — "which products are above 10?" is a browse
+     *  filter, not a low-stock question: `low_stock` compares each product to
+     *  its OWN threshold, while these compare to a number the user chose. */
+    minQuantity: quantityBound.optional(),
+    maxQuantity: quantityBound.optional(),
   }),
 
   z.strictObject({

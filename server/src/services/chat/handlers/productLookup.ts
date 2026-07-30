@@ -24,6 +24,7 @@ import {
   productLookupFound,
   productLookupTruncated,
   type LookupScope,
+  type QuantityFilter,
 } from '../templates.js';
 import { EXAMPLE_QUESTIONS, MAX_ROWS, type ProductSummary } from '../types.js';
 import type { ProductLookupIntent } from '../intentSchema.js';
@@ -38,6 +39,17 @@ export async function handleProductLookup(
   // A category name is an ID lookup, not a text search — but only if it really
   // is a category here. If it isn't, we fall back to searching for the phrase,
   // because "laptops" is a category to one tenant and a name fragment to the next.
+  // Inclusive bounds, straight from validated slots — never interpolated into a
+  // query string, only copied into a filter the service builds.
+  const quantity: QuantityFilter | undefined =
+    intent.minQuantity === undefined && intent.maxQuantity === undefined
+      ? undefined
+      : { min: intent.minQuantity, max: intent.maxQuantity };
+  const quantityQuery = {
+    ...(intent.minQuantity !== undefined ? { minQuantity: intent.minQuantity } : {}),
+    ...(intent.maxQuantity !== undefined ? { maxQuantity: intent.maxQuantity } : {}),
+  };
+
   const categoryId =
     spokenCategory === undefined ? undefined : await resolveCategoryId(spokenCategory);
   const searchTerm = term ?? (categoryId === undefined ? spokenCategory : undefined);
@@ -48,9 +60,14 @@ export async function handleProductLookup(
   const search =
     searchTerm === undefined
       ? undefined
-      : await searchProducts(deps.products, searchTerm, { limit: MAX_ROWS, categoryId });
+      : await searchProducts(deps.products, searchTerm, {
+          limit: MAX_ROWS,
+          categoryId,
+          ...quantityQuery,
+        });
   const listed =
-    search?.listed ?? (await deps.products.list(productsQuery({ limit: MAX_ROWS, categoryId })));
+    search?.listed ??
+    (await deps.products.list(productsQuery({ limit: MAX_ROWS, categoryId, ...quantityQuery })));
 
   const products: ProductSummary[] = toProductSummaries(listed.data, listed.categoryNames);
   const totalCount = listed.totalItems;
@@ -76,6 +93,7 @@ export async function handleProductLookup(
         // Name what the USER asked for, not the widest variant we tried.
         summary: productLookupEmpty(
           searchTerm === undefined ? scope : { kind: 'term', value: searchTerm },
+          quantity,
         ),
         products: [],
         totalCount: 0,
@@ -90,7 +108,7 @@ export async function handleProductLookup(
     return {
       result: {
         intent: 'product_lookup',
-        summary: productLookupTruncated({ scope, totalCount, shown: products.length }),
+        summary: productLookupTruncated({ scope, totalCount, shown: products.length, quantity }),
         products,
         totalCount,
         examples: [],
@@ -106,7 +124,12 @@ export async function handleProductLookup(
   return {
     result: {
       intent: 'product_lookup',
-      summary: productLookupFound({ scope, totalCount, totalOnHand: totalOnHand(products) }),
+      summary: productLookupFound({
+        scope,
+        totalCount,
+        totalOnHand: totalOnHand(products),
+        quantity,
+      }),
       products,
       totalCount,
       examples: [],

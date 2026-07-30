@@ -733,6 +733,22 @@ paths:
           schema:
             type: string
             enum: [in, low, out]
+        - name: minQuantity
+          in: query
+          description: >-
+            Inclusive lower bound on units in stock. Independent of stockStatus,
+            which compares each product to its OWN reorder level; this compares
+            to a number the caller chose. Ignored when stockStatus=out, which
+            already pins quantity to exactly 0.
+          schema:
+            type: integer
+            minimum: 0
+        - name: maxQuantity
+          in: query
+          description: Inclusive upper bound on units in stock.
+          schema:
+            type: integer
+            minimum: 0
         - name: archived
           in: query
           description: Admin-only — filter by archival state. Staff supplying it → 403.

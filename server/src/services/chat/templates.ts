@@ -52,6 +52,24 @@ function scopeClause(scope: LookupScope): string {
   }
 }
 
+/** Inclusive bounds, rendered so the user can check the filter was understood.
+ *  A silent numeric filter is the easiest kind of wrong answer to believe. */
+export interface QuantityFilter {
+  min?: number | undefined;
+  max?: number | undefined;
+}
+
+function quantityClause(filter: QuantityFilter | undefined): string {
+  if (filter === undefined) return '';
+  const { min, max } = filter;
+  if (min !== undefined && max !== undefined) {
+    return ` with ${String(min)}–${String(max)} units in stock`;
+  }
+  if (min !== undefined) return ` with ${plural(min, 'unit')} or more in stock`;
+  if (max !== undefined) return ` with ${plural(max, 'unit')} or fewer in stock`;
+  return '';
+}
+
 /** States that the search was relaxed, or '' when it was not. */
 function widenedPrefix(scope: LookupScope): string {
   if (scope.kind !== 'term' || scope.asked === undefined) return '';
@@ -64,10 +82,11 @@ export function productLookupFound(args: {
   scope: LookupScope;
   totalCount: number;
   totalOnHand: number;
+  quantity?: QuantityFilter | undefined;
 }): string {
   return `${widenedPrefix(args.scope)}Found ${plural(args.totalCount, 'product')}${scopeClause(
     args.scope,
-  )}. Total on hand: ${plural(args.totalOnHand, 'unit')}.`;
+  )}${quantityClause(args.quantity)}. Total on hand: ${plural(args.totalOnHand, 'unit')}.`;
 }
 
 /** TOO_MANY_RESULTS — the count is stated, so this is never a silent truncation. */
@@ -75,23 +94,29 @@ export function productLookupTruncated(args: {
   scope: LookupScope;
   totalCount: number;
   shown: number;
+  quantity?: QuantityFilter | undefined;
 }): string {
   return `${widenedPrefix(args.scope)}Found ${plural(args.totalCount, 'product')}${scopeClause(
     args.scope,
+  )}${quantityClause(
+    args.quantity,
   )} — showing the first ${String(args.shown)}. Add a brand or category to narrow it down.`;
 }
 
 /** NO_RESULTS — names what was searched, then hands back a concrete next move.
  *  "Try a shorter term" is the single most effective hint, because retained
  *  filler in the slot is the most common cause of an empty result set. */
-export function productLookupEmpty(scope: LookupScope): string {
+export function productLookupEmpty(scope: LookupScope, quantity?: QuantityFilter): string {
+  const bounded = quantityClause(quantity);
   switch (scope.kind) {
     case 'term':
-      return `No products matched "${scope.value}". Try a shorter term — a brand or product name usually works better than a full phrase.`;
+      return `No products matched "${scope.value}"${bounded}. Try a shorter term — a brand or product name usually works better than a full phrase.`;
     case 'category':
-      return `There are no products in "${scope.value}" right now.`;
+      return `There are no products in "${scope.value}"${bounded} right now.`;
     case 'all':
-      return 'There are no products in the catalogue yet.';
+      return bounded === ''
+        ? 'There are no products in the catalogue yet.'
+        : `No products${bounded}.`;
   }
 }
 

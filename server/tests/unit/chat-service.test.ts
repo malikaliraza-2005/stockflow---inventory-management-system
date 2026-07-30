@@ -391,6 +391,57 @@ describe('slot normalisation (the real-world failure mode)', () => {
     expect(result.summary).toContain('Laptop Stand');
   });
 
+  it('"which products are above 10?" filters by quantity and states the bound', async () => {
+    // Reported from real use as `unsupported` — there was no numeric-threshold
+    // capability at all. NOT low_stock: that compares each product to its OWN
+    // reorder level, this compares to a number the user named.
+    await makeProduct('Zyn cool mint', 4);
+    await makeProduct('Real Madrid Jersey', 12);
+    await makeProduct('FC Barcelona Jersey', 15);
+    const { service } = makeChat(['{"intent":"product_lookup","minQuantity":11}']);
+
+    const result = await service.ask(ask('Which Product Quantity is above 10?'));
+
+    if (result.intent !== 'product_lookup') throw new Error(`got ${result.intent}`);
+    expect(result.totalCount).toBe(2);
+    expect(result.products.map((p) => p.name).sort()).toEqual([
+      'FC Barcelona Jersey',
+      'Real Madrid Jersey',
+    ]);
+    expect(result.summary).toBe(
+      'Found 2 products with 11 units or more in stock. Total on hand: 27 units.',
+    );
+  });
+
+  it('supports an upper bound and a range, and combines with a search term', async () => {
+    await makeProduct('Zyn cool mint', 4);
+    await makeProduct('Real Madrid Jersey', 12);
+    await makeProduct('FC Barcelona Jersey', 15);
+
+    const under = makeChat(['{"intent":"product_lookup","maxQuantity":5}']);
+    const underResult = await under.service.ask(ask('what has under 6 units'));
+    expect(underResult.summary).toBe(
+      'Found 1 product with 5 units or fewer in stock. Total on hand: 4 units.',
+    );
+
+    const range = makeChat([
+      '{"intent":"product_lookup","productQuery":"Jersey","minQuantity":13,"maxQuantity":20}',
+    ]);
+    const rangeResult = await range.service.ask(ask('jerseys between 13 and 20'));
+    expect(rangeResult.summary).toBe(
+      'Found 1 product matching "Jersey" with 13–20 units in stock. Total on hand: 15 units.',
+    );
+  });
+
+  it('an empty quantity filter still names the bound that was applied', async () => {
+    await makeProduct('Zyn cool mint', 4);
+    const { service } = makeChat(['{"intent":"product_lookup","minQuantity":500}']);
+
+    const result = await service.ask(ask('anything with 500+ units'));
+
+    expect(result.summary).toBe('No products with 500 units or more in stock.');
+  });
+
   it('widens to a word when the whole phrase misses, and SAYS that it did', async () => {
     // The real case: catalogue holds "FC Barcelona Jersey"; the user asks for
     // "Barca Jersey". A perfect classifier does not help — "Barca" is not a
@@ -475,7 +526,7 @@ describe('the structured log record', () => {
       fallback: null, // explicit, so "answered normally" is filterable
       resultCount: 1,
       provider: 'fake',
-      promptVersion: 'v3',
+      promptVersion: 'v4',
     });
     expect(record['tenantId']).toBe('aaaaaaaaaaaaaaaaaaaaaaa1');
     // Latency is SPLIT: "provider or database?" is always the first question.

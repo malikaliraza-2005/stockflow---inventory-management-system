@@ -94,6 +94,16 @@ export class ProductService {
     const filter: FilterQuery<ProductDoc> = { isArchived: query.archived ?? false };
     if (query.categoryId) filter.categoryId = new mongoose.Types.ObjectId(query.categoryId);
 
+    // Inclusive quantity bounds. Applied only when `stockStatus` has not already
+    // pinned `quantity` itself — 'out' means exactly 0, and a range on top of
+    // that would silently contradict it rather than intersect.
+    if (query.minQuantity !== undefined || query.maxQuantity !== undefined) {
+      const range: Record<string, number> = {};
+      if (query.minQuantity !== undefined) range.$gte = query.minQuantity;
+      if (query.maxQuantity !== undefined) range.$lte = query.maxQuantity;
+      filter.quantity = range;
+    }
+
     if (query.stockStatus === 'out') filter.quantity = 0;
     else if (query.stockStatus === 'low')
       filter.$expr = {

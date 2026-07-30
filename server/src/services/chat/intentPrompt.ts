@@ -18,6 +18,11 @@
 import { INTENT_SHAPES, PERIODS } from './intentSchema.js';
 
 /**
+ * v4 (reported from real use): "Which product quantity is above 10?" returned
+ * `unsupported`, correctly — there was no quantity-threshold capability at all.
+ * Rule 7 adds one, and spells out the strict-to-inclusive conversion, because
+ * the bounds are inclusive and "above 10" is not.
+ *
  * v3 (live eval, gemini-3.5-flash-lite): intent hit 100%, but EVERY slot miss
  * was `movement_history`, with two linked causes — `period` was never emitted
  * at all (so the schema default silently answered "last 30 days" to "this
@@ -33,7 +38,7 @@ import { INTENT_SHAPES, PERIODS } from './intentSchema.js';
  * over name/sku/barcode, so "Logitech mouse" misses a product actually stored
  * as "Logitech MX Master 3S". Rule 3 now says so explicitly.
  */
-export const PROMPT_VERSION = 'v3';
+export const PROMPT_VERSION = 'v4';
 
 /** Human-readable purpose per intent — paired with the generated slot list. */
 const INTENT_DESCRIPTIONS: Record<string, string> = {
@@ -53,6 +58,8 @@ const SLOT_DESCRIPTIONS: Record<string, string> = {
   categoryName: 'string, 2-60 chars — only when the user clearly names a CATEGORY of goods',
   period: `one of ${PERIODS.join(' | ')} — pick a bucket; never compute a date`,
   limit: 'integer 1-50 — only when the user asks for a specific number of rows',
+  minQuantity: 'integer — INCLUSIVE lower bound on units in stock (see rule 7)',
+  maxQuantity: 'integer — INCLUSIVE upper bound on units in stock (see rule 7)',
 };
 
 function renderCatalogue(): string {
@@ -91,6 +98,10 @@ const EXAMPLES: readonly { q: string; a: string }[] = [
     q: 'What stock came in and out for the XPS 15 over the past week?',
     a: '{"intent":"movement_history","productQuery":"XPS 15","period":"last_7_days"}',
   },
+  {
+    q: 'Which items have more than 25 units?',
+    a: '{"intent":"product_lookup","minQuantity":26}',
+  },
   { q: "What's the weather in Karachi?", a: '{"intent":"unsupported"}' },
   { q: 'Delete all products in the Electronics category', a: '{"intent":"unsupported"}' },
 ];
@@ -126,6 +137,13 @@ RULES (in priority order)
    - "ever", "all time", "the full history", "everything recorded" -> all
 5a. The time phrase is NEVER part of productQuery. "the Canon printer last week" gives productQuery "Canon" AND period "last_7_days" — never productQuery "Canon printer last week".
 6. Any request to create, update, delete, archive, adjust or import anything is "unsupported". This assistant is read-only.
+7. Quantity thresholds are product_lookup with minQuantity / maxQuantity, and BOTH BOUNDS ARE INCLUSIVE, so convert strict comparisons:
+   - "above 10" / "more than 10" / "over 10"  -> minQuantity: 11
+   - "at least 10" / "10 or more"             -> minQuantity: 10
+   - "under 5" / "fewer than 5" / "below 5"   -> maxQuantity: 4
+   - "at most 5" / "5 or fewer"               -> maxQuantity: 5
+   - "between 5 and 20"                       -> minQuantity: 5, maxQuantity: 20
+   This is NOT low_stock. low_stock compares each product to its OWN reorder level; these compare to a number the user named.
 
 EXAMPLES
 ${renderExamples()}`;
