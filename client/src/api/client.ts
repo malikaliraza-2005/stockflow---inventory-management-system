@@ -18,7 +18,7 @@
 import axios, { AxiosError, type AxiosRequestConfig } from 'axios';
 
 import { getConfig } from '../config';
-import { useAuthStore } from '../stores/authStore';
+import { sessionEpoch, useAuthStore } from '../stores/authStore';
 import { endSession, performRefresh } from './session';
 
 export class ApiError extends Error {
@@ -68,10 +68,18 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-/** ARB-03 single flight: at most ONE refresh in flight, ever. */
+/**
+ * ARB-03 single flight: at most ONE refresh in flight, ever — app-wide, not
+ * just per-interceptor. Exported because the A-7 bootstrap refresh MUST join
+ * this same flight: the server rotates on every use and treats a second use of
+ * a rotated token as theft (BR-35 — it revokes the whole family), so two
+ * overlapping `/auth/refresh` calls with one cookie log the user out. React's
+ * StrictMode double-invokes the bootstrap effect in dev, which made that the
+ * NORMAL case rather than the rare one.
+ */
 let refreshInFlight: Promise<string> | null = null;
 
-function refreshOnce(): Promise<string> {
+export function refreshOnce(): Promise<string> {
   refreshInFlight ??= performRefresh().finally(() => {
     refreshInFlight = null;
   });
@@ -111,11 +119,17 @@ api.interceptors.response.use(undefined, async (error: AxiosError) => {
   const isAuthRoute = url.includes('/auth/');
 
   if (status === 401 && !isAuthRoute && !config._retried) {
+    const epoch = sessionEpoch();
     try {
       await refreshOnce();
     } catch {
-      endSession('expired'); // EC-30 — forms preserve their state themselves
-      throw toApiError(error);
+      // A login (or another refresh) may have installed a NEWER session while
+      // ours was in flight. That session is valid — our failure is stale news,
+      // so replay against it instead of tearing it down.
+      if (sessionEpoch() === epoch) {
+        endSession('expired'); // EC-30 — forms preserve their state themselves
+        throw toApiError(error);
+      }
     }
     config._retried = true; // replay ONCE — a second 401 is terminal
     return api.request(config);

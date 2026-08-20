@@ -210,12 +210,43 @@ describe('refresh & rotation (BR-35, BEV-02, PDV-03)', () => {
     const first = await service.login('sara@example.com', PASSWORD);
     const second = await service.refresh(first.refreshToken);
 
+    // Past the concurrency grace: this is replay, not simultaneity
+    advance(30_000);
+
     // Replay the ROTATED token (theft or crash-mid-rotation — BEV-02)
     await expect(service.refresh(first.refreshToken)).rejects.toThrow(UnauthorizedError);
     await pollAudit('TOKEN_REUSE_DETECTED').toBe(1);
 
     // The whole family is dead — including the latest, still-unexpired token
     await expect(service.refresh(second.refreshToken)).rejects.toThrow(UnauthorizedError);
+  });
+
+  it('BR-35__simultaneous_use_of_one_cookie_is_grace_not_theft', async () => {
+    await createUser();
+    const service = makeService();
+    const first = await service.login('sara@example.com', PASSWORD);
+
+    // Two tabs bootstrap at once: both present the SAME cookie within the grace
+    // window. Both get a working session in the same family — nothing revoked.
+    const a = await service.refresh(first.refreshToken);
+    const b = await service.refresh(first.refreshToken);
+
+    expect(b.refreshToken).not.toBe(a.refreshToken);
+    const rows = await RefreshToken.find({ tokenHash: hashToken(first.refreshToken) });
+    expect(rows[0]?.rotatedAt).toEqual(clock); // stamped ONCE — grace can't be extended
+    expect(await AuditLog.countDocuments({ action: 'TOKEN_REUSE_DETECTED' })).toBe(0);
+    // …and both issued tokens still work
+    await expect(service.refresh(a.refreshToken)).resolves.toBeDefined();
+    await expect(service.refresh(b.refreshToken)).resolves.toBeDefined();
+  });
+
+  it('BR-35__grace_does_not_resurrect_a_REVOKED_token', async () => {
+    await createUser();
+    const service = makeService();
+    const first = await service.login('sara@example.com', PASSWORD);
+    await service.logout(first.refreshToken); // revoked, rotatedAt never set
+
+    await expect(service.refresh(first.refreshToken)).rejects.toThrow(UnauthorizedError);
   });
 
   it('PDV-03__expiry_checked_by_value_not_by_TTL_collection', async () => {
