@@ -114,6 +114,10 @@ describe('POST /api/v1/auth/login (05 §7.1)', () => {
     expect(res.body.settings).toEqual({
       systemCurrency: 'EUR',
       movementWarningThreshold: 500,
+      // Environment-derived, not a Settings field: it gates a deployment, not a
+      // tenant preference. Carried here so the client hides the assistant entry
+      // point rather than offering a button that 404s.
+      chatEnabled: true,
     });
   });
 

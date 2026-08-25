@@ -22,6 +22,7 @@ import helmet from 'helmet';
 import { createAuditLogsController } from './controllers/auditLogsController.js';
 import { createAuthController } from './controllers/authController.js';
 import { createCategoriesController } from './controllers/categoriesController.js';
+import { createChatController } from './controllers/chatController.js';
 import { createDashboardController } from './controllers/dashboardController.js';
 import { createMovementsController } from './controllers/movementsController.js';
 import { createProductsController } from './controllers/productsController.js';
@@ -43,6 +44,7 @@ import { requestId } from './middleware/requestId.js';
 import { createAuditLogsRouter } from './routes/auditLogs.js';
 import { createAuthRouter } from './routes/auth.js';
 import { createCategoriesRouter } from './routes/categories.js';
+import { createChatRouter } from './routes/chat.js';
 import { createDashboardRouter } from './routes/dashboard.js';
 import { createMovementsRouter } from './routes/movements.js';
 import { createProductsRouter } from './routes/products.js';
@@ -55,6 +57,8 @@ import { AuditQueryService } from './services/AuditQueryService.js';
 import { AuditService } from './services/AuditService.js';
 import { AuthService } from './services/AuthService.js';
 import { CategoryService } from './services/CategoryService.js';
+import { ChatService } from './services/ChatService.js';
+import { createLlmProvider, type LlmProviderId } from './services/llm/providers/index.js';
 import { DashboardService } from './services/DashboardService.js';
 import { MovementService } from './services/MovementService.js';
 import { ProductService } from './services/ProductService.js';
@@ -63,6 +67,7 @@ import { SettingsService } from './services/SettingsService.js';
 import { TransactionService } from './services/TransactionService.js';
 import { UploadService } from './services/UploadService.js';
 import { UserService } from './services/UserService.js';
+import type { LlmProvider } from './services/llm/types.js';
 
 /** The env slice the pipeline consumes — server.ts passes the validated Env. */
 export interface AppEnv {
@@ -84,6 +89,20 @@ export interface AppEnv {
   CLOUDINARY_API_KEY: string;
   CLOUDINARY_API_SECRET: string;
   CLOUDINARY_DELIVERY_HOST: string;
+  /** AI Inventory Assistant kill switch — off ⇒ /chat is never mounted. */
+  CHAT_ENABLED: boolean;
+  LLM_PROVIDER: LlmProviderId;
+  /** Absent ⇒ the provider's default model (services/llm/providers/index.ts). */
+  LLM_MODEL?: string | undefined;
+  LLM_API_KEY?: string | undefined;
+  /** Optional second account, used only when the primary reports exhaustion. */
+  LLM_FALLBACK_PROVIDER?: LlmProviderId | undefined;
+  LLM_FALLBACK_API_KEY?: string | undefined;
+  LLM_FALLBACK_MODEL?: string | undefined;
+  LLM_MAX_TOKENS: number;
+  LLM_TIMEOUT_MS: number;
+  RATE_LIMIT_CHAT_MAX: number;
+  RATE_LIMIT_CHAT_WINDOW_MS: number;
 }
 
 export interface AppDeps {
@@ -98,6 +117,9 @@ export interface AppDeps {
   /** Test seam: inject a stub Google verifier (no real Google call). Prod omits
    *  it — the verifier is built from GOOGLE_CLIENT_ID instead. */
   verifyGoogleToken?: GoogleVerifier | undefined;
+  /** Test seam: inject a scripted LLM provider. Prod omits it — the provider is
+   *  built from LLM_PROVIDER/LLM_MODEL/LLM_API_KEY (mirrors verifyGoogleToken). */
+  llmProvider?: LlmProvider | undefined;
 }
 
 export function createApp(deps: AppDeps): Express {
@@ -179,6 +201,7 @@ export function createApp(deps: AppDeps): Express {
       accessSecret: env.JWT_ACCESS_SECRET,
       accessTtl: env.ACCESS_TOKEN_TTL,
       refreshTtl: env.REFRESH_TOKEN_TTL,
+      chatEnabled: env.CHAT_ENABLED, // FCM-01 settings block — the client hides the entry point
     },
     verifyGoogleToken: googleVerifier,
   });
@@ -323,6 +346,39 @@ export function createApp(deps: AppDeps): Express {
       authenticate: authenticateMw,
       authorize,
     }),
+  );
+
+  // AI Inventory Assistant — SHIPPED DARK. When CHAT_ENABLED is false the
+  // router is never mounted, so /api/v1/chat falls through to the 404 below and
+  // the feature costs exactly one boolean at runtime. That is what lets the code
+  // deploy, the build be verified, and the feature be switched on per
+  // environment — and off again in seconds, without a rollback.
+  if (env.CHAT_ENABLED) {
+    const chatService = new ChatService({
+      // Mirrors the verifyGoogleToken seam: tests inject a scripted provider,
+      // production builds the real one from config.
+      llm: deps.llmProvider ?? createLlmProvider(env, logger),
+      products: productService,
+      transactions: transactionService,
+      config: { maxTokens: env.LLM_MAX_TOKENS, timeoutMs: env.LLM_TIMEOUT_MS },
+    });
+    app.use(
+      '/api/v1/chat',
+      createChatRouter({
+        controller: createChatController(chatService),
+        authenticate: authenticateMw,
+        authorize,
+        limits: { windowMs: env.RATE_LIMIT_CHAT_WINDOW_MS, max: env.RATE_LIMIT_CHAT_MAX },
+      }),
+    );
+  }
+  logger.info(
+    {
+      chatEnabled: env.CHAT_ENABLED,
+      llmProvider: env.LLM_PROVIDER,
+      llmFallback: env.LLM_FALLBACK_PROVIDER ?? null,
+    },
+    env.CHAT_ENABLED ? 'chat: AI assistant ENABLED' : 'chat: AI assistant DISABLED (CHAT_ENABLED)',
   );
 
   // Unknown route → 404 envelope (ERR §11)

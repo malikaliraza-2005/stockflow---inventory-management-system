@@ -13,6 +13,7 @@ import { usePermission } from '../../hooks/usePermission';
 import { selectSidebarCollapsed, useUiStore } from '../../stores/uiStore';
 import { selectUser, useAuthStore } from '../../stores/authStore';
 import type { Capability } from '../../lib/permissions.generated';
+import { ChatWidget } from '../domain/ChatWidget';
 import { Button } from '../ui/Button';
 import { Logo } from '../ui/Logo';
 import { NAV_ICONS } from './navIcons';
@@ -40,6 +41,7 @@ export function AppShell() {
   const collapsed = useUiStore(selectSidebarCollapsed);
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
   const can = usePermission();
+  const visibleEntries = NAV_ENTRIES.filter((entry) => can(entry.capability));
   const initials =
     (user?.name ?? '')
       .split(' ')
@@ -68,7 +70,7 @@ export function AppShell() {
           </button>
         </div>
         <nav className="space-y-1 px-2 py-2">
-          {NAV_ENTRIES.filter((entry) => can(entry.capability)).map((entry) => (
+          {visibleEntries.map((entry) => (
             <NavLink
               key={entry.to}
               to={entry.to}
@@ -124,7 +126,7 @@ export function AppShell() {
         aria-label="Primary"
         className="fixed inset-x-0 bottom-0 z-30 flex overflow-x-auto border-t border-neutral-200 bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-1px_3px_rgba(0,0,0,0.06)] backdrop-blur md:hidden"
       >
-        {NAV_ENTRIES.filter((entry) => can(entry.capability)).map((entry) => (
+        {visibleEntries.map((entry) => (
           <NavLink
             key={entry.to}
             to={entry.to}
@@ -140,6 +142,11 @@ export function AppShell() {
           </NavLink>
         ))}
       </nav>
+
+      {/* The assistant's entry point — a floating bubble, mounted once so it
+          follows the user across every page. Renders nothing without chat.use
+          and the session's chatEnabled flag. */}
+      <ChatWidget />
     </div>
   );
 }

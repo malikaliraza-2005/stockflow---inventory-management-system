@@ -105,6 +105,16 @@ export const router = createBrowserRouter([
                     }),
                   },
                   {
+                    // AI inventory assistant — Any role (chat.use). The route
+                    // stays registered even when CHAT_ENABLED is off: the page
+                    // itself checks the session's chatEnabled flag, so toggling
+                    // the server needs no client deploy.
+                    path: 'assistant',
+                    lazy: async () => ({
+                      Component: (await import('./pages/Assistant')).default,
+                    }),
+                  },
+                  {
                     // Reports — Any role views (F10); export + consistency gated
                     // in-page (reports.export / reports.consistency).
                     path: 'reports',

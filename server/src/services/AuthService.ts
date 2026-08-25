@@ -70,6 +70,8 @@ export interface AuthServiceDeps {
     accessSecret: string;
     accessTtl: string; // '15m'
     refreshTtl: string; // '7d'
+    /** FCM-01 settings block — CHAT_ENABLED, so the client hides the entry point. */
+    chatEnabled?: boolean;
   };
   /** Injected clock — the lockout window is tested by advancing this. */
   now?: () => Date;
@@ -94,6 +96,17 @@ export interface RequestContext {
 export interface SessionSettings {
   systemCurrency: string;
   movementWarningThreshold: number;
+  /**
+   * The AI assistant's kill switch, surfaced so the client can hide the entry
+   * point rather than offering a button that 404s. It rides the EXISTING
+   * settings block deliberately — a new endpoint for one boolean would be a
+   * second round trip on every page load for a flag we already send.
+   *
+   * Environment-derived, not a Settings document field: it gates a deployment,
+   * not a tenant preference. Per-tenant control has a natural home in `Settings`
+   * later — don't build it until someone asks.
+   */
+  chatEnabled: boolean;
 }
 
 export interface AuthSession {
@@ -618,6 +631,7 @@ export class AuthService {
       settings: {
         systemCurrency: settings?.currency ?? 'USD',
         movementWarningThreshold: settings?.movementWarningThreshold ?? 1000,
+        chatEnabled: this.config.chatEnabled ?? false,
       },
     };
   }
