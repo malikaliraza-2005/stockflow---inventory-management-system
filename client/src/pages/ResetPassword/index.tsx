@@ -81,8 +81,15 @@ export default function ResetPasswordPage() {
   }
 
   return (
-    <div className="space-y-4">
-      <h2 className="text-lg font-medium text-gray-900">Choose a new password</h2>
+    <div className="space-y-6">
+      <header className="space-y-1.5">
+        <h1 className="text-2xl font-bold tracking-tight text-neutral-900">
+          Choose a new password
+        </h1>
+        <p className="text-sm text-neutral-500">
+          This link works once — set the password you'll actually use.
+        </p>
+      </header>
       {formError && <AlertBanner tone="danger" message={formError} />}
       <form onSubmit={(event) => void handleSubmit(event)} noValidate className="space-y-2">
         <FormField
@@ -114,7 +121,7 @@ export default function ResetPasswordPage() {
             {...fieldAria('reset-confirm', errors.confirmPassword)}
           />
         </FormField>
-        <SubmitRow submitLabel="Set password" loading={loading} />
+        <SubmitRow submitLabel="Set password" loading={loading} fullWidth />
       </form>
     </div>
   );

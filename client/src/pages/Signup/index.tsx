@@ -61,6 +61,46 @@ function fieldErrorsFromDetails(details: unknown): FieldErrors | null {
   return Object.keys(next).length > 0 ? next : null;
 }
 
+/**
+ * The password rules, mirrored from `signupPassword` (auth schemas) as live
+ * checkmarks — the same requirements the hint states, shown ticking off as they
+ * type. Purely a visual aid: it is aria-hidden because the hint text (and, on
+ * failure, the field error) already carry the requirement to assistive tech.
+ */
+const PASSWORD_RULES: readonly { label: string; met: (value: string) => boolean }[] = [
+  { label: '10+ characters', met: (v) => v.length >= 10 && v.length <= 64 },
+  { label: 'A letter', met: (v) => /[A-Za-z]/.test(v) },
+  { label: 'A number', met: (v) => /\d/.test(v) },
+];
+
+function PasswordRules({ value }: { value: string }) {
+  if (value.length === 0) return null;
+  return (
+    <ul aria-hidden="true" className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+      {PASSWORD_RULES.map((rule) => {
+        const met = rule.met(value);
+        return (
+          <li
+            key={rule.label}
+            className={`flex items-center gap-1.5 text-xs transition-colors ${
+              met ? 'text-success-600' : 'text-neutral-400'
+            }`}
+          >
+            <span
+              className={`grid h-3.5 w-3.5 place-items-center rounded-full text-[9px] font-bold text-white transition-colors ${
+                met ? 'bg-success-600' : 'bg-neutral-300'
+              }`}
+            >
+              ✓
+            </span>
+            {rule.label}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 /** Every human message inside a server `details[]` — the banner fallback so a
  *  concrete reason is shown even when nothing maps to a known field. */
 function detailMessages(details: unknown): string[] {
@@ -141,8 +181,15 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="space-y-4">
-      <h2 className="text-lg font-medium text-gray-900">Create your workspace</h2>
+    <div className="space-y-6">
+      <header className="space-y-1.5">
+        <h1 className="text-2xl font-bold tracking-tight text-neutral-900">
+          Create your workspace
+        </h1>
+        <p className="text-sm text-neutral-500">
+          Free to start, no card required. You'll be the first Admin.
+        </p>
+      </header>
       {formError && <AlertBanner tone="danger" message={formError} />}
       <form onSubmit={(event) => void handleSubmit(event)} noValidate className="space-y-2">
         <FormField
@@ -198,13 +245,14 @@ export default function SignupPage() {
             onBlur={() => handleBlur('password')}
             {...fieldAria('signup-password', errors.password, PASSWORD_HINT)}
           />
+          <PasswordRules value={values.password} />
         </FormField>
-        <SubmitRow submitLabel="Create workspace" loading={loading} />
+        <SubmitRow submitLabel="Create workspace" loading={loading} fullWidth />
       </form>
       <GoogleSignInButton text="signup_with" />
-      <p className="text-sm text-gray-600">
+      <p className="text-center text-sm text-neutral-500">
         Already have an account?{' '}
-        <Link to="/login" className="font-medium text-brand-600 hover:text-brand-700">
+        <Link to="/login" className="font-semibold text-brand-600 hover:text-brand-700">
           Sign in
         </Link>
       </p>
