@@ -105,10 +105,10 @@ export function GoogleSignInButton({ text = 'signin_with' }: GoogleSignInButtonP
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-3 text-xs text-gray-400">
-        <span className="h-px flex-1 bg-gray-200" />
-        or
-        <span className="h-px flex-1 bg-gray-200" />
+      <div className="flex items-center gap-3 text-xs font-medium text-neutral-400">
+        <span className="h-px flex-1 bg-linear-to-r from-transparent to-neutral-200" />
+        or continue with
+        <span className="h-px flex-1 bg-linear-to-l from-transparent to-neutral-200" />
       </div>
       {error && <AlertBanner tone="danger" message={error} />}
       <div ref={containerRef} className="flex justify-center" />

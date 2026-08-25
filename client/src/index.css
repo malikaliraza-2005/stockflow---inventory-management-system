@@ -100,6 +100,105 @@
   .animate-dialog-in {
     animation: dialog-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   }
+
+  /* ── Landing (marketing) chrome ────────────────────────────────────────
+     Decorative only (WIR §0.3): the page must read identically with every
+     animation off — the reduced-motion block below kills all of them. Kept
+     here rather than inline so the hero stays declarative in JSX. */
+
+  /* Staggered entrance; pair with an inline `animationDelay`. */
+  @keyframes rise-in {
+    from {
+      opacity: 0;
+      transform: translateY(18px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  /* Slow colour-field drift behind the hero — two blobs, offset delays. */
+  @keyframes aurora-drift {
+    0%,
+    100% {
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+    33% {
+      transform: translate3d(6%, -5%, 0) scale(1.14);
+    }
+    66% {
+      transform: translate3d(-5%, 4%, 0) scale(0.92);
+    }
+  }
+  /* Idle bob for the floating product mock. */
+  @keyframes float-y {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-10px);
+    }
+  }
+  /* Light sweeping across the gradient headline. */
+  @keyframes sheen {
+    from {
+      background-position: 0% 50%;
+    }
+    to {
+      background-position: -200% 50%;
+    }
+  }
+
+  .animate-rise-in {
+    opacity: 0;
+    animation: rise-in 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  .animate-aurora {
+    animation: aurora-drift 20s ease-in-out infinite;
+  }
+  .animate-float-y {
+    animation: float-y 7s ease-in-out infinite;
+  }
+  .animate-sheen {
+    background-size: 200% auto;
+    animation: sheen 7s linear infinite;
+  }
+
+  /* Faint blueprint grid, faded out toward the edges so it never boxes in
+     the hero copy. */
+  .hero-grid {
+    background-image:
+      linear-gradient(to right, rgb(255 255 255 / 0.055) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(255 255 255 / 0.055) 1px, transparent 1px);
+    background-size: 58px 58px;
+    -webkit-mask-image: radial-gradient(ellipse 75% 65% at 50% 15%, #000 35%, transparent 100%);
+    mask-image: radial-gradient(ellipse 75% 65% at 50% 15%, #000 35%, transparent 100%);
+  }
+}
+
+/* Anchor nav (`#features`, …) glides instead of jumping; sections reserve room
+   for the fixed marketing header via scroll-margin. */
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+/* NFR-30 / WIR §0.3: motion is opt-out-able. Outside every @layer so it wins
+   over the utilities above regardless of layer order. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .animate-rise-in,
+  .animate-aurora,
+  .animate-float-y,
+  .animate-sheen {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
 }
 
 /* QRLabel print isolation (F4, FR-PROD-08): print only the label, hide the app

@@ -64,8 +64,13 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="space-y-4">
-      <h2 className="text-lg font-medium text-gray-900">Sign in</h2>
+    <div className="space-y-6">
+      <header className="space-y-1.5">
+        <h1 className="text-2xl font-bold tracking-tight text-neutral-900">Sign in</h1>
+        <p className="text-sm text-neutral-500">
+          Welcome back — pick up exactly where your team left off.
+        </p>
+      </header>
       {formError && <AlertBanner tone="danger" message={formError} />}
       <form onSubmit={(event) => void handleSubmit(event)} noValidate className="space-y-2">
         <FormField label="Email" htmlFor="login-email" error={errors.email} required>
@@ -86,12 +91,12 @@ export default function LoginPage() {
             {...fieldAria('login-password', errors.password)}
           />
         </FormField>
-        <SubmitRow submitLabel="Sign in" loading={loading} />
+        <SubmitRow submitLabel="Sign in" loading={loading} fullWidth />
       </form>
       <GoogleSignInButton text="signin_with" />
-      <p className="text-sm text-gray-600">
+      <p className="text-center text-sm text-neutral-500">
         New here?{' '}
-        <Link to="/signup" className="font-medium text-brand-600 hover:text-brand-700">
+        <Link to="/signup" className="font-semibold text-brand-600 hover:text-brand-700">
           Create a workspace
         </Link>
       </p>
