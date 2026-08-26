@@ -30,6 +30,7 @@ import { StockMovementDialog } from '../../components/domain/StockMovementDialog
 import type { PickedProduct } from '../../components/domain/ProductPicker';
 import { AlertBanner } from '../../components/ui/AlertBanner';
 import { Button } from '../../components/ui/Button';
+import { Modal } from '../../components/ui/Modal';
 import { usePermission } from '../../hooks/usePermission';
 import { useToast } from '../../hooks/useToast';
 import { messageFor } from '../../lib/errorMap';
@@ -49,6 +50,12 @@ type DialogState = { kind: 'stock'; type: 'STOCK_IN' | 'STOCK_OUT' } | { kind: '
 
 function toPicked(product: ProductLookup): PickedProduct {
   return { id: product.id, name: product.name, sku: product.sku, quantity: product.quantity };
+}
+
+/** Dialog heading per lookup-tail variant — archived is never "not found" (BR-07). */
+function resultTitle(result: ScanResult): string {
+  if (result.kind === 'not-found') return 'No product found';
+  return result.kind === 'archived' ? 'Archived product' : 'Product scanned';
 }
 
 export default function ScannerPage() {
@@ -201,29 +208,43 @@ export default function ScannerPage() {
         />
       )}
 
+      {/*
+        The result POPS UP over the viewport instead of stacking under it — on a
+        phone the card sat below the fold and a scan looked like it did nothing.
+        Hidden while a movement dialog is open (same z-40 layer), and restored
+        with the flash + new quantity when that dialog completes.
+      */}
       {state.phase === 'result' && (
-        <ScanResultCard
-          result={state.result}
-          canAdjust={canAdjust}
-          canCreateProduct={canCreateProduct}
-          canRestore={canRestore}
-          flash={flash}
-          onStockIn={() => setDialog({ kind: 'stock', type: 'STOCK_IN' })}
-          onStockOut={() => setDialog({ kind: 'stock', type: 'STOCK_OUT' })}
-          onAdjust={() => setDialog({ kind: 'adjust' })}
-          onView={() => {
-            if (foundProduct) navigate(`/products/${foundProduct.id}`);
-          }}
-          onRestore={() => {
-            if (foundProduct) void handleRestore(foundProduct);
-          }}
-          onCreateProduct={() => {
-            if (state.result.kind === 'not-found') {
-              navigate('/products/new', { state: { barcode: state.result.code } });
-            }
-          }}
-          onScanNext={resumeScanning}
-        />
+        <Modal
+          open={dialog === null}
+          onClose={resumeScanning}
+          title={resultTitle(state.result)}
+          size="sm"
+        >
+          <ScanResultCard
+            result={state.result}
+            flat
+            canAdjust={canAdjust}
+            canCreateProduct={canCreateProduct}
+            canRestore={canRestore}
+            flash={flash}
+            onStockIn={() => setDialog({ kind: 'stock', type: 'STOCK_IN' })}
+            onStockOut={() => setDialog({ kind: 'stock', type: 'STOCK_OUT' })}
+            onAdjust={() => setDialog({ kind: 'adjust' })}
+            onView={() => {
+              if (foundProduct) navigate(`/products/${foundProduct.id}`);
+            }}
+            onRestore={() => {
+              if (foundProduct) void handleRestore(foundProduct);
+            }}
+            onCreateProduct={() => {
+              if (state.result.kind === 'not-found') {
+                navigate('/products/new', { state: { barcode: state.result.code } });
+              }
+            }}
+            onScanNext={resumeScanning}
+          />
+        </Modal>
       )}
 
       {foundProduct && (
