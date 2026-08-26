@@ -34,6 +34,8 @@ export interface ScanResultCardProps {
   canRestore: boolean;
   /** Post-movement success flash (WIR Issue 2a). */
   flash?: boolean;
+  /** Rendered inside the pop-up dialog — drop the standalone card chrome. */
+  flat?: boolean;
   onStockIn: () => void;
   onStockOut: () => void;
   onAdjust: () => void;
@@ -64,14 +66,17 @@ function ProductThumb({ product }: { product: ProductLookup }) {
 }
 
 export function ScanResultCard(props: ScanResultCardProps) {
-  const { result, flash = false } = props;
+  const { result, flash = false, flat = false } = props;
   const flashClass = flash ? 'ring-2 ring-success-600 bg-success-100' : 'ring-1 ring-gray-200';
+  // In the dialog the surface is the modal itself; only the flash keeps a skin.
+  const chrome = flat
+    ? flash
+      ? 'rounded-lg bg-success-100 p-3 ring-1 ring-success-600 transition-colors'
+      : ''
+    : `rounded-lg bg-white p-4 shadow-sm transition-colors ${flashClass}`;
 
   return (
-    <section
-      aria-label="Scan result"
-      className={`rounded-lg bg-white p-4 shadow-sm transition-colors ${flashClass}`}
-    >
+    <section aria-label="Scan result" className={chrome}>
       {result.kind === 'not-found' ? (
         <div className="space-y-3">
           <div>
