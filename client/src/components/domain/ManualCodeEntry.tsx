@@ -42,7 +42,7 @@ export function ManualCodeEntry({ onSubmit, disabled = false }: ManualCodeEntryP
 
   return (
     <form onSubmit={handleSubmit} noValidate className="flex items-start gap-2">
-      <div className="flex-1">
+      <div className="min-w-0 flex-1">
         <FormField label="Enter a code" htmlFor={INPUT_ID} error={error}>
           <Input
             {...fieldAria(INPUT_ID, error)}

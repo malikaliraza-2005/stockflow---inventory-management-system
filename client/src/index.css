@@ -139,3 +139,49 @@
     width: fit-content;
   }
 }
+
+/* ── Touch/mobile form ergonomics ────────────────────────────────────────────
+   Unlayered on purpose (same reasoning as the reduced-motion block above): the
+   utilities layer would otherwise win and `text-sm` would stay at 14px.
+
+   iOS Safari AUTO-ZOOMS the page whenever a focused control computes to under
+   16px — that is the "screen zooms in when I type in Stock In" report. Every
+   control in the app is `text-sm` (14px), so the fix belongs here, once, rather
+   than on 29 call sites. Setting 16px is also the only fix that keeps pinch-zoom
+   working; `maximum-scale=1` would kill it and fail WCAG 1.4.4.
+
+   The same block buys the other touch guarantees: 44px targets (WCAG 2.5.8),
+   controls that can never push the page wider than the viewport (a `<select>`
+   sizes to its longest option, which overflows a 360px screen), and checkboxes
+   big enough to hit.
+
+   Condition: small viewport OR a real touch device — an iPhone in LANDSCAPE is
+   844px wide and still auto-zooms, so width alone is not enough. A desktop with
+   a touchscreen reports `hover: hover` and is left alone. */
+@media (max-width: 767px), (hover: none) and (pointer: coarse) {
+  input:not([type='checkbox']):not([type='radio']):not([type='file']),
+  select,
+  textarea {
+    font-size: 16px; /* < 16px ⇒ iOS zooms on focus. Non-negotiable. */
+    min-height: 2.75rem; /* 44px — WCAG 2.5.8 target size */
+    max-width: 100%; /* never widen the page past the viewport */
+    min-width: 0; /* let controls shrink inside flex rows */
+  }
+  textarea {
+    min-height: 5.5rem;
+  }
+  input[type='checkbox'],
+  input[type='radio'] {
+    width: 1.15rem;
+    height: 1.15rem;
+    flex-shrink: 0;
+  }
+}
+
+@layer base {
+  html {
+    /* Safari inflates text on rotation to portrait→landscape without this. */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+}

@@ -62,7 +62,7 @@ export function ScannerViewport({ onDecoded, paused }: ScannerViewportProps) {
 
   return (
     <div
-      className="relative flex h-[55vh] max-h-130 w-full items-center justify-center overflow-hidden rounded-lg bg-gray-900 md:h-80"
+      className="relative flex h-[55dvh] max-h-130 w-full items-center justify-center overflow-hidden rounded-lg bg-gray-900 md:h-80"
       data-testid="scanner-viewport"
       data-phase={phase}
     >

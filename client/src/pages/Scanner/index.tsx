@@ -161,7 +161,7 @@ export default function ScannerPage() {
       <CameraErrorBoundary>
         <Suspense
           fallback={
-            <div className="h-[55vh] max-h-130 w-full animate-pulse rounded-lg bg-gray-200 md:h-80" />
+            <div className="h-[55dvh] max-h-130 w-full animate-pulse rounded-lg bg-gray-200 md:h-80" />
           }
         >
           <ScannerViewport onDecoded={runLookup} paused={paused} />

@@ -38,7 +38,7 @@ export function Button({
     <button
       type={type}
       disabled={disabled || loading}
-      className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all duration-150 active:translate-y-px disabled:cursor-not-allowed disabled:active:translate-y-0 ${variantClasses[variant]} ${className}`}
+      className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all duration-150 active:translate-y-px disabled:cursor-not-allowed disabled:active:translate-y-0 md:min-h-0 ${variantClasses[variant]} ${className}`}
       {...rest}
     >
       {loading && <Spinner size="sm" />}

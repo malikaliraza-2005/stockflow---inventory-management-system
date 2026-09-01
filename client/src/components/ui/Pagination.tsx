@@ -16,15 +16,15 @@ export function Pagination({ page, totalPages, totalItems, limit, onChange }: Pa
   const last = Math.min(page * limit, totalItems);
 
   return (
-    <div className="flex items-center justify-between gap-3 pt-3 text-sm text-gray-600">
+    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 pt-3 text-sm text-gray-600">
       <span>
         Showing {first}–{last} of {totalItems}
       </span>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-1 items-center justify-end gap-2">
         <Button variant="secondary" disabled={page <= 1} onClick={() => onChange(page - 1)}>
           Previous
         </Button>
-        <span aria-current="page">
+        <span aria-current="page" className="whitespace-nowrap">
           Page {page} of {totalPages}
         </span>
         <Button

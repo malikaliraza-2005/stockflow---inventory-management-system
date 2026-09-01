@@ -195,30 +195,30 @@ function LedgerTab() {
       )}
 
       <div className="flex flex-wrap items-end gap-3">
-        <label className="text-sm">
+        <label className="min-w-0 flex-1 basis-36 text-sm sm:flex-none">
           <span className="mb-1 block text-gray-600">From</span>
           <input
             type="date"
             value={from}
             onChange={(e) => patch({ from: e.target.value }, true)}
-            className="rounded-md border border-gray-300 px-3 py-2 text-sm"
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm sm:w-auto"
           />
         </label>
-        <label className="text-sm">
+        <label className="min-w-0 flex-1 basis-36 text-sm sm:flex-none">
           <span className="mb-1 block text-gray-600">To</span>
           <input
             type="date"
             value={to}
             onChange={(e) => patch({ to: e.target.value }, true)}
-            className="rounded-md border border-gray-300 px-3 py-2 text-sm"
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm sm:w-auto"
           />
         </label>
-        <label className="text-sm">
+        <label className="min-w-0 flex-1 basis-36 text-sm sm:flex-none">
           <span className="mb-1 block text-gray-600">Type</span>
           <select
             value={type ?? ''}
             onChange={(e) => patch({ type: e.target.value }, true)}
-            className="rounded-md border border-gray-300 px-3 py-2 text-sm"
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm sm:w-auto"
           >
             <option value="">All types</option>
             {TYPES.map((option) => (

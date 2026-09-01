@@ -38,12 +38,19 @@ export function Modal({
     };
     document.addEventListener('keydown', onKeyDown);
 
+    // Freeze the page behind the dialog. On mobile the sheet is full-screen, and
+    // without this the body keeps scrolling under it (and iOS restores a random
+    // offset on close).
+    const restoreOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
     // Move focus into the dialog
     const focusable = dialogRef.current?.querySelector<HTMLElement>(FOCUSABLE);
     focusable?.focus();
 
     return () => {
       document.removeEventListener('keydown', onKeyDown);
+      document.body.style.overflow = restoreOverflow;
       (triggerRef.current as HTMLElement | null)?.focus?.(); // return focus
     };
   }, [open, onClose]);
@@ -52,7 +59,7 @@ export function Modal({
 
   return (
     <div
-      className="fixed inset-0 z-40 flex animate-overlay-in items-center justify-center bg-neutral-900/50 p-0 backdrop-blur-sm md:p-4"
+      className="fixed inset-0 z-40 flex h-dvh animate-overlay-in items-center justify-center overflow-y-auto bg-neutral-900/50 p-0 backdrop-blur-sm md:p-4"
       onMouseDown={(e) => {
         if (dismissOnOverlay && e.target === e.currentTarget) onClose();
       }}
@@ -62,7 +69,7 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className={`flex h-full w-full animate-dialog-in flex-col bg-white shadow-pop md:h-auto md:rounded-xl ${
+        className={`flex h-dvh max-h-dvh w-full animate-dialog-in flex-col bg-white shadow-pop md:h-auto md:max-h-[calc(100dvh-2rem)] md:rounded-xl ${
           size === 'sm' ? 'md:max-w-sm' : 'md:max-w-lg'
         }`}
       >
@@ -79,7 +86,9 @@ export function Modal({
             ×
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto px-5 py-4">{children}</div>
+        <div className="flex-1 overflow-y-auto px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:pb-4">
+          {children}
+        </div>
       </div>
     </div>
   );
