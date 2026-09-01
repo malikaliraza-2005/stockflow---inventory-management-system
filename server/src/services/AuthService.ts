@@ -57,6 +57,13 @@ const BCRYPT_COST = 12; // BR-32
 const LOCKOUT_THRESHOLD = 5; // BR-33
 const LOCKOUT_MS = 15 * 60_000; // BR-33
 const RESET_TOKEN_MS = 30 * 60_000; // AAD §2 reset flow
+/**
+ * BR-35 concurrency grace: how long after rotation the SAME token may still be
+ * presented before it counts as reuse. Covers only genuine simultaneity (two
+ * tabs, a retried request) — a stolen token replayed later than this still
+ * kills the family, and a revoked token is never in grace.
+ */
+const ROTATION_GRACE_MS = 10_000;
 const MONGO_DUPLICATE_KEY = 11000;
 
 /** One string for both unknown-email and wrong-password (AAD §2 — generic). */
@@ -317,7 +324,18 @@ export class AuthService {
     const row = await RefreshToken.findOne({ tokenHash: hashToken(rawToken) });
     if (!row) throw new UnauthorizedError();
 
-    if (row.rotatedAt || row.revokedAt) {
+    // Concurrency grace (BR-35 refinement): a browser can legitimately present
+    // the SAME cookie twice at once — two tabs restoring together, a retried
+    // request, a StrictMode double-mount. Those arrive within milliseconds of
+    // each other, so a token whose rotation is still seconds old is a benign
+    // duplicate, not theft: re-issue into the same family instead of revoking
+    // it. A revoked token is never benign, and the window is measured from the
+    // FIRST rotation (never re-stamped) so a replay cannot extend it.
+    const rotatedAgeMs = row.rotatedAt ? this.now().getTime() - row.rotatedAt.getTime() : null;
+    const concurrentUse =
+      !row.revokedAt && rotatedAgeMs !== null && rotatedAgeMs <= ROTATION_GRACE_MS;
+
+    if ((row.rotatedAt || row.revokedAt) && !concurrentUse) {
       // Reuse detected — theft, or a crash mid-rotation (BEV-02). Both are
       // ambiguous states, both fail closed: kill the family, force re-login.
       const at = this.now();
@@ -352,8 +370,11 @@ export class AuthService {
       throw new UnauthorizedError();
     }
 
-    // Rotation, fail-closed order (BEV-02): mark FIRST, insert SECOND.
-    await RefreshToken.updateOne({ _id: row._id }, { $set: { rotatedAt: this.now() } });
+    // Rotation, fail-closed order (BEV-02): mark FIRST, insert SECOND. Already
+    // marked ⇒ this is the grace path above; leave the original stamp alone.
+    if (!row.rotatedAt) {
+      await RefreshToken.updateOne({ _id: row._id }, { $set: { rotatedAt: this.now() } });
+    }
     return runWithTenant(user.tenantId, () => this.issueSession(user, row.familyId, ctx));
   }
 

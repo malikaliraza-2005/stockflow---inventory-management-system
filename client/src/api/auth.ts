@@ -3,9 +3,9 @@
  * endpoint + the store writes SMA assigns to it. Types come from the
  * generated contract (NFR-27) — never hand-declared.
  */
-import { api } from './client';
-import { applySession, endSession, performRefresh } from './session';
-import { useAuthStore } from '../stores/authStore';
+import { api, refreshOnce } from './client';
+import { applySession, endSession } from './session';
+import { sessionEpoch, useAuthStore } from '../stores/authStore';
 import type { components } from '../types/api';
 
 type SessionResponse = components['schemas']['SessionResponse'];
@@ -46,15 +46,23 @@ export async function loginWithGoogle(idToken: string): Promise<void> {
 }
 
 /**
- * App bootstrap (A-7 refresh-on-load): same single refresh call the
- * interceptor uses. Failure is a NORMAL state (no cookie yet) — quiet
- * unauthenticated, no navigation, no toast.
+ * App bootstrap (A-7 refresh-on-load): joins the interceptor's SINGLE FLIGHT
+ * (`refreshOnce`, not a second bare `performRefresh`) — StrictMode invokes this
+ * effect twice in dev, and two overlapping refreshes on one cookie trip the
+ * server's reuse detection and revoke the whole token family.
+ *
+ * Failure is a NORMAL state (no cookie yet) — quiet unauthenticated, no
+ * navigation, no toast. But only if the session we started with is still the
+ * current one: on a cold API this call can take tens of seconds, long enough
+ * for the user to sign in first, and clearing then would throw away the
+ * session they just created and bounce them back to /login.
  */
 export async function bootstrapSession(): Promise<void> {
+  const epoch = sessionEpoch();
   try {
-    await performRefresh();
+    await refreshOnce();
   } catch {
-    useAuthStore.getState().clearSession();
+    if (sessionEpoch() === epoch) useAuthStore.getState().clearSession();
   }
 }
 

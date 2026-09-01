@@ -198,6 +198,13 @@ describe('POST /api/v1/auth/refresh (05 §7.1, BR-35)', () => {
     const second = refreshCookieOf(rotated);
     expect(second).not.toBe(first);
 
+    // Age the rotation past the concurrency grace so this reads as a REPLAY
+    // and not as two tabs presenting one cookie at the same instant.
+    await RefreshToken.updateOne(
+      { tokenHash: hashToken(first) },
+      { $set: { rotatedAt: new Date(Date.now() - 60_000) } },
+    );
+
     // Replay the rotated token → 401 + entire family revoked (BR-35)
     const replay = await request(app)
       .post('/api/v1/auth/refresh')
